@@ -1364,6 +1364,7 @@ Inc/visualization_msgs/MarkerArray.h
 Inc/visualization_msgs/MenuEntry.h
 LICENSE
 Makefile
+README.md
 STM32F411RETx_FLASH.ld
 Src/ADXL345.cpp
 Src/HMC5883L.cpp
