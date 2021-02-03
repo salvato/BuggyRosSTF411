@@ -1,0 +1,27 @@
+// PC10 (CN7   1)    ------> LM298 IN3 (R Motor Direction)
+// PC11 (CN7   2)    ------> LM298 IN4 (R Motor Direction)
+// PA14 (CN7  16)    ------> +3.3V     (10DOF Sensor, L+R Motor Encoders +Vcc)
+// PA15 (CN7  18)    ------> +5V       (Sonar Vcc)
+// GND  (CN7  19)    ------> GND       (Sonar GND)
+// GND  (CN7  20)    ------> GND       (10DOF Sensor)
+// PB7  (CN7  21)    ------> TIM4_CH2  (R Motor Encoder)
+// PC13 (CN7  23)    ------> Button On Board
+// PA1  (CN7  30)    ------> Sonar     (Sonar Echo In)
+
+// PC9  (CN10  1)    ------> LM298 IN2 (L Motor Direction)
+// PC8  (CN10  2)    ------> LM298 IN1 (L Motor Direction)
+// PB8  (CN10  3)    ------> Sonar     (Sonar Pulse Out)
+// PA5  (CN10  9)    ------> GND       (L+R Motor Encoders GND)
+// PA5  (CN10 11)    ------> Led On Board
+// PA6  (CN10 13)    ------> LM298 ENA (L Motor PWM)
+// PA7  (CN10 15)    ------> LM298_ENB (R Motor PWM)
+// PB6  (CN10 17)    ------> TIM4_CH1  (R Motor Encoder)
+// GND  (CN10 20)    ------> LM298 GND (Both Motors)
+// PA8  (CN10 21)    ------> TIM1_CH1  (L Motor Encoder)
+// PA9  (CN10 23)    ------> TIM1_CH2  (L Motor Encoder)
+// PB10 (CN10 25)    ------> I2C2_SCL  (10DOF Sensor)
+// PB3  (CN10 31)    ------> I2C2_SDA  (10DOF Sensor)
+// AGND (CN10 32)    ------> Alarm     (- Pin)
+// PA10 (CN10 33)    ------> Alarm     (+ Pin)
+// PA2  (CN10 35)    ------> USART2_TX
+// PA3  (CN10 37)    ------> USART2_RX
