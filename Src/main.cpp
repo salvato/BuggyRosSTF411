@@ -144,7 +144,7 @@ static void Loop();
 static void Init_Hardware();
 static bool AHRS_Init();
 static void Init_ROS();
-static bool updateOdometry(ros::Duration diff_time);
+static bool updateOdometry();
 
 
 ///================
@@ -176,7 +176,6 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 /// Buggy Mechanics
 ///==================
 static const double WHEEL_DIAMETER               = 0.069;  // [m]
-static const double WHEEL_RADIUS                 = 0.5 * WHEEL_DIAMETER;
 static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m]
 
@@ -225,10 +224,6 @@ static float AccelValues[3];
 static float GyroValues[3];
 static float MagValues[3];
 
-static double pastPosition[2] = {0.0};
-static double pastOrientation = 0.0;
-#define LEFT  0
-#define RIGHT 1
 double odom_pose[3] = {0.0};
 double odom_vel[3] = {0.0};
 
@@ -286,6 +281,7 @@ sensor_msgs::Range               obstacleDistance;
 ros::Publisher rotation_pub("buggyRotation", &actual_rotation);
 ros::Publisher actual_speed_pub("buggySpeed", &actual_speed);
 ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
+ros::Publisher odom_pub("odom", &odom);
 
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
@@ -356,19 +352,10 @@ Loop() {
         isTimeToUpdateSonar = false;
         HAL_NVIC_DisableIRQ(TIM2_IRQn);
         obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
-        obstacleDistance.header.stamp = nh.now();
         HAL_NVIC_EnableIRQ(TIM2_IRQn);
+        obstacleDistance.header.stamp = nh.now();
         obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
         obstacleDistance_pub.publish(&obstacleDistance);
-
-        odom.pose.pose.position.x = ;//odom_pose_[0];
-        odom.pose.pose.position.y = ;//odom_pose_[1];
-        odom.pose.pose.position.z = 0;
-        odom.pose.pose.orientation = actual_rotation;
-
-        // We should update the twist of the odometry
-        odom.twist.twist.linear.x  = ;//odom_vel_[0];
-        odom.twist.twist.angular.z = ;//odom_vel_[2];
 
         rotation_pub.publish(&actual_rotation);
         actual_speed_pub.publish(&actual_speed);
@@ -376,7 +363,9 @@ Loop() {
     }
 
     if(isTimeToUpdateOdometry) {
-
+        updateOdometry();
+        odom.header.stamp = nh.now();
+        odom_pub.publish(&odom);
     }
     nh.spinOnce();
 }
@@ -384,40 +373,32 @@ Loop() {
 ///    End Loop
 ///=======================================================================
 
-
+#include <tf/tf.h>
 //=========================
 // Calculate the odometry
 //=========================
 bool
-updateOdometry(ros::Duration diff_time) {
-    double delta_s, delta_theta;
-
-    // Spazio percorso dalle ruote nell'intervallo di campionamento
+updateOdometry() {
+    /// Wheels Path Length in the Sampling Interval
     double wheel_l = pLeftControlledMotor->spaceTraveled();
     double wheel_r = pRightControlledMotor->spaceTraveled();
-
-    // Spazio percorso dal centro del Robot nell'intervallo di campionamento
-    delta_s = WHEEL_RADIUS * (wheel_r + wheel_l) / 2.0;
-
-    // Rotazione dell'asse del Robot nell'intervallo di campionamento
-    delta_theta = WHEEL_RADIUS * (wheel_r - wheel_l) / TRACK_LENGTH;
-
-    // compute odometric pose
-    odom_pose[0] += delta_s * cos(odom_pose[2] + (delta_theta / 2.0));
-    odom_pose[1] += delta_s * sin(odom_pose[2] + (delta_theta / 2.0));
+    /// Robot's Axis Rotation in the Sampling Interval
+    double delta_theta = (wheel_r - wheel_l) / TRACK_LENGTH;
+    /// Compute Updated Odometric Pose
+    double delta_s = 0.5 * (wheel_r + wheel_l);
+    odom_pose[0] += delta_s * cos(odom_pose[2]+(0.5*delta_theta));
+    odom_pose[1] += delta_s * sin(odom_pose[2]+(0.5*delta_theta));
     odom_pose[2] += delta_theta;
-
-    // compute odometric instantaneouse velocity
-    odom_vel[0] = delta_s / diff_time.toSec();     // v
-    odom_vel[1] = 0.0;
-    odom_vel[2] = delta_theta / diff_time.toSec(); // w
-
     odom.pose.pose.position.x = odom_pose[0];
     odom.pose.pose.position.y = odom_pose[1];
     odom.pose.pose.position.z = 0;
-    odom.pose.pose.orientation = nh.createQuaternionMsgFromYaw(odom_pose_[2]);
-
-    // We should update the twist of the odometry
+    /// Compute Updated Odometric Orientation
+    odom.pose.pose.orientation = tf::createQuaternionFromYaw(odom_pose[2]);
+    /// Compute Odometric Instantaneouse Velocity
+    odom_vel[0] = delta_s * odometryUpdateFrequency;     // v
+    odom_vel[1] = 0.0;
+    odom_vel[2] = delta_theta * odometryUpdateFrequency; // w
+    /// Update the Twist of the odometry
     odom.twist.twist.linear.x  = odom_vel[0];
     odom.twist.twist.angular.z = odom_vel[2];
 
@@ -499,7 +480,7 @@ AHRS_Init() {
     for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
         Madgwick.update(GyroValues, AccelValues, MagValues);
     }
-    pastOrientation = Madgwick.getYaw();
+    odom_pose[2] = Madgwick.getYaw();
     return true;
 }
 
@@ -551,6 +532,7 @@ targetSpeed_cb(const geometry_msgs::Twist& speed) {
     double angSpeed  = speed.angular.z*TRACK_LENGTH*0.5; // Vt = Omega * R
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
+    prev_update_time = nh.now();
 /// TODO:
 /// Da spostare in Loop() per tenere conto del fatto che, se si interrompe
 /// il collegamento con il Controller Remoto, Buggy deve FERMARSI !!!
