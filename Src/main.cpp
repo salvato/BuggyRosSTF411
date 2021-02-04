@@ -220,7 +220,6 @@ ITG3200  Gyro;     // 400KHz I2C Capable
 HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
 Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
 
-static float q0, q1, q2, q3;
 static float AccelValues[3];
 static float GyroValues[3];
 static float MagValues[3];
@@ -242,8 +241,6 @@ uint32_t sonarSamplingPulses = uint32_t(periodicClockFrequency/sonarSamplingFreq
 
 bool bAHRSpresent    = false;
 
-bool isTimeToUpdateAHRS     = false;
-bool isTimeToUpdateMotors   = false;
 bool isTimeToUpdateSonar    = false;
 bool isTimeToUpdateOdometry = false;
 
@@ -271,7 +268,6 @@ double rightTargetSpeed = 0.0;
 ros::NodeHandle nh;
 
 ros::Time last_cmd_vel_time;
-ros::Time prev_update_time;
 
 nav_msgs::Odometry               odom;
 geometry_msgs::Quaternion        actual_rotation;
@@ -316,7 +312,7 @@ Setup() {
     HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_3); // Sonar
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-    prev_update_time = nh.now();
+    last_cmd_vel_time = nh.now();
     nh.loginfo("Buggy Ready...");
 }
 
@@ -326,28 +322,6 @@ Setup() {
 ///=======================================================================
 static void
 Loop() {
-    if(isTimeToUpdateAHRS) {
-        isTimeToUpdateAHRS = false;
-        HAL_NVIC_DisableIRQ(TIM2_IRQn);
-        Madgwick.getRotation(&q0, &q1, &q2, &q3);
-        HAL_NVIC_EnableIRQ(TIM2_IRQn);
-        actual_rotation.w = q0;
-        actual_rotation.x = q1;
-        actual_rotation.y = q2;
-        actual_rotation.z = q3;
-    }
-
-    if(isTimeToUpdateMotors) {
-        isTimeToUpdateMotors = false;
-        HAL_NVIC_DisableIRQ(TIM2_IRQn);
-        actual_speed.header.stamp = nh.now();
-/// TODO:
-/// Da calcolare velocità lineare ed Angolare !!!
-        actual_speed.vector.x = pLeftControlledMotor->getCurrentSpeed();
-        actual_speed.vector.y = pRightControlledMotor->getCurrentSpeed();
-        HAL_NVIC_EnableIRQ(TIM2_IRQn);
-    }
-
     if(isTimeToUpdateSonar) {
         isTimeToUpdateSonar = false;
         HAL_NVIC_DisableIRQ(TIM2_IRQn);
@@ -528,7 +502,7 @@ targetSpeed_cb(const geometry_msgs::Twist& speed) {
     double angSpeed  = speed.angular.z*TRACK_LENGTH*0.5; // Vt = Omega * R
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
-    prev_update_time = nh.now();
+    last_cmd_vel_time = nh.now();
 /// TODO:
 /// Da spostare in Loop() per tenere conto del fatto che, se si interrompe
 /// il collegamento con il Controller Remoto, Buggy deve FERMARSI !!!
@@ -568,7 +542,6 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 Gyro.readGyro(GyroValues);
                 Magn.ReadScaledAxis(MagValues);
                 Madgwick.update(GyroValues, AccelValues, MagValues);
-                isTimeToUpdateAHRS = true;
             }
             //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
@@ -576,11 +549,9 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             htim->Instance->CCR2 += motorSamplingPulses;
             if(pLeftControlledMotor) {
                 pLeftControlledMotor->Update();
-                isTimeToUpdateMotors = true;
             }
             if(pRightControlledMotor) {
                 pRightControlledMotor->Update();
-                isTimeToUpdateMotors = true;
             }
         }
         else if(htim->Channel == SONAR_UPDATE_CHANNEL) { // Time to Update Sonar Data ? (30Hz)
