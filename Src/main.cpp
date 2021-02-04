@@ -144,6 +144,7 @@ static void Loop();
 static void Init_Hardware();
 static bool AHRS_Init();
 static void Init_ROS();
+static bool updateOdometry(ros::Duration diff_time);
 
 
 ///================
@@ -226,13 +227,19 @@ static float MagValues[3];
 
 static double pastPosition[2] = {0.0};
 static double pastOrientation = 0.0;
+#define LEFT  0
+#define RIGHT 1
+double odom_pose[3] = {0.0};
+double odom_vel[3] = {0.0};
+
 
 ///===================
 /// Update Intervals
 ///===================
 uint32_t AHRSSamplingFrequency   = 400; // [Hz]
 uint32_t motorSamplingFrequency  = 50;  // [Hz]
-uint32_t sonarSamplingFrequency  = 10;  // [Hz] (Max 40Hz)
+uint32_t sonarSamplingFrequency  = 30;  // [Hz] (Max 40Hz)
+uint32_t odometryUpdateFrequency = sonarSamplingFrequency;
 
 uint32_t AHRSSamplingPulses  = uint32_t(periodicClockFrequency/AHRSSamplingFrequency +0.5); // [Hz]
 uint32_t motorSamplingPulses = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
@@ -240,9 +247,10 @@ uint32_t sonarSamplingPulses = uint32_t(periodicClockFrequency/sonarSamplingFreq
 
 bool bAHRSpresent    = false;
 
-bool isTimeToUpdateAHRS   = false;
-bool isTimeToUpdateMotors = false;
-bool isTimeToUpdateSonar  = false;
+bool isTimeToUpdateAHRS     = false;
+bool isTimeToUpdateMotors   = false;
+bool isTimeToUpdateSonar    = false;
+bool isTimeToUpdateOdometry = false;
 
 /// Captured Values for Echo Width Calculation
 volatile uint32_t uwIC2Value1    = 0;
@@ -306,10 +314,10 @@ Setup() {
     // Enable the Periodic Samplig Timer Interrupt
     HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(TIM2_IRQn);
-    // Start the Periodic Sampling of: AHRS, Motors and Sonar
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_4);
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_2);
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_3);
+    // Start the Periodic Sampling of:
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_4); // AHRS
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_2); // Motors
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_3); // Sonar
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
     prev_update_time = nh.now();
@@ -347,14 +355,11 @@ Loop() {
     if(isTimeToUpdateSonar) {
         isTimeToUpdateSonar = false;
         HAL_NVIC_DisableIRQ(TIM2_IRQn);
-        double distance = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
+        obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
         obstacleDistance.header.stamp = nh.now();
         HAL_NVIC_EnableIRQ(TIM2_IRQn);
         obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
-        obstacleDistance.range = distance;
-
-        static double pastPosition[2];
-        static double pastOrientation;
+        obstacleDistance_pub.publish(&obstacleDistance);
 
         odom.pose.pose.position.x = ;//odom_pose_[0];
         odom.pose.pose.position.y = ;//odom_pose_[1];
@@ -367,8 +372,11 @@ Loop() {
 
         rotation_pub.publish(&actual_rotation);
         actual_speed_pub.publish(&actual_speed);
-        obstacleDistance_pub.publish(&obstacleDistance);
         //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    }
+
+    if(isTimeToUpdateOdometry) {
+
     }
     nh.spinOnce();
 }
@@ -376,60 +384,44 @@ Loop() {
 ///    End Loop
 ///=======================================================================
 
-/*******************************************************************************
-* Calculate the odometry
-*******************************************************************************/
-#define LEFT  0
-#define RIGHT 1
-double odom_pose_[3] = {0.0};
-double odom_vel_[3] = {0.0};
+
+//=========================
+// Calculate the odometry
+//=========================
 bool
 updateOdometry(ros::Duration diff_time) {
-  double wheel_l, wheel_r; // rotation value of wheel [rad]
-  double delta_s, delta_theta;
-  double v[2], w[2];
+    double delta_s, delta_theta;
 
-  wheel_l = wheel_r     = 0.0;
-  delta_s = delta_theta = 0.0;
+    // Spazio percorso dalle ruote nell'intervallo di campionamento
+    double wheel_l = pLeftControlledMotor->spaceTraveled();
+    double wheel_r = pRightControlledMotor->spaceTraveled();
 
-  v[LEFT]  = leftTargetSpeed;
-  w[LEFT]  = v[LEFT] / WHEEL_RADIUS;  // w = v / r
+    // Spazio percorso dal centro del Robot nell'intervallo di campionamento
+    delta_s = WHEEL_RADIUS * (wheel_r + wheel_l) / 2.0;
 
-  v[RIGHT] = rightTargetSpeed;
-  w[RIGHT] = v[RIGHT] / WHEEL_RADIUS;
+    // Rotazione dell'asse del Robot nell'intervallo di campionamento
+    delta_theta = WHEEL_RADIUS * (wheel_r - wheel_l) / TRACK_LENGTH;
 
-//  last_velocity_[LEFT]  = w[LEFT];
-//  last_velocity_[RIGHT] = w[RIGHT];
+    // compute odometric pose
+    odom_pose[0] += delta_s * cos(odom_pose[2] + (delta_theta / 2.0));
+    odom_pose[1] += delta_s * sin(odom_pose[2] + (delta_theta / 2.0));
+    odom_pose[2] += delta_theta;
 
-  wheel_l = pLeftControlledMotor->spaceTraveled();  // Spazio percorso dalla ruota sinistra
-  wheel_r = pRightControlledMotor->spaceTraveled(); // Spazio percorso dalla ruota destra
+    // compute odometric instantaneouse velocity
+    odom_vel[0] = delta_s / diff_time.toSec();     // v
+    odom_vel[1] = 0.0;
+    odom_vel[2] = delta_theta / diff_time.toSec(); // w
 
-//  last_position_[LEFT]  += wheel_l;
-//  last_position_[RIGHT] += wheel_r;
+    odom.pose.pose.position.x = odom_pose[0];
+    odom.pose.pose.position.y = odom_pose[1];
+    odom.pose.pose.position.z = 0;
+    odom.pose.pose.orientation = nh.createQuaternionMsgFromYaw(odom_pose_[2]);
 
-  delta_s     = WHEEL_RADIUS * (wheel_r + wheel_l) / 2.0; // Spazio percorso dal centro del Robot
-  delta_theta = WHEEL_RADIUS * (wheel_r - wheel_l) / TRACK_LENGTH; // Rotazione dell'asse del Robot
+    // We should update the twist of the odometry
+    odom.twist.twist.linear.x  = odom_vel[0];
+    odom.twist.twist.angular.z = odom_vel[2];
 
-  // compute odometric pose
-  odom_pose_[0] += delta_s * cos(odom_pose_[2] + (delta_theta / 2.0));
-  odom_pose_[1] += delta_s * sin(odom_pose_[2] + (delta_theta / 2.0));
-  odom_pose_[2] += delta_theta;
-
-  // compute odometric instantaneouse velocity
-  odom_vel_[0] = delta_s / diff_time.toSec();     // v
-  odom_vel_[1] = 0.0;
-  odom_vel_[2] = delta_theta / diff_time.toSec(); // w
-
-  odom.pose.pose.position.x = odom_pose_[0];
-  odom.pose.pose.position.y = odom_pose_[1];
-  odom.pose.pose.position.z = 0;
-  odom.pose.pose.orientation = nh.createQuaternionMsgFromYaw(odom_pose_[2]);
-
-  // We should update the twist of the odometry
-  odom.twist.twist.linear.x  = odom_vel_[0];
-  odom.twist.twist.angular.z = odom_vel_[2];
-
-  return true;
+    return true;
 }
 
 
@@ -613,11 +605,12 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 isTimeToUpdateMotors = true;
             }
         }
-        else if(htim->Channel == SONAR_UPDATE_CHANNEL) { // Time to Update Sonar Data ? (10Hz)
+        else if(htim->Channel == SONAR_UPDATE_CHANNEL) { // Time to Update Sonar Data ? (30Hz)
             htim->Instance->CCR3 += sonarSamplingPulses;
             uhCaptureIndex = 0;
             LL_TIM_IC_SetPolarity(TIM5, LL_TIM_CHANNEL_CH2, LL_TIM_IC_POLARITY_RISING);
             LL_TIM_EnableCounter(hSonarPulseTimer.Instance);
+            isTimeToUpdateOdometry = true; // We use this Timer to send the updated Odometry
         }
     } // if(htim->Instance == hSamplingTimer.Instance)
 }
