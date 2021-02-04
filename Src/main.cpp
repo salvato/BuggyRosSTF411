@@ -122,6 +122,7 @@
 #endif
 
 #include <ros.h>
+#include <tf/tf.h>
 #include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
 
@@ -224,8 +225,7 @@ static float AccelValues[3];
 static float GyroValues[3];
 static float MagValues[3];
 
-double odom_pose[3] = {0.0};
-double odom_vel[3] = {0.0};
+static double odom_pose[3] = {0.0};
 
 
 ///===================
@@ -373,7 +373,7 @@ Loop() {
 ///    End Loop
 ///=======================================================================
 
-#include <tf/tf.h>
+
 //=========================
 // Calculate the odometry
 //=========================
@@ -394,13 +394,9 @@ updateOdometry() {
     odom.pose.pose.position.z = 0;
     /// Compute Updated Odometric Orientation
     odom.pose.pose.orientation = tf::createQuaternionFromYaw(odom_pose[2]);
-    /// Compute Odometric Instantaneouse Velocity
-    odom_vel[0] = delta_s * odometryUpdateFrequency;     // v
-    odom_vel[1] = 0.0;
-    odom_vel[2] = delta_theta * odometryUpdateFrequency; // w
-    /// Update the Twist of the odometry
-    odom.twist.twist.linear.x  = odom_vel[0];
-    odom.twist.twist.angular.z = odom_vel[2];
+    /// Update the Twist of the odometry (Instantaneouse Velocities)
+    odom.twist.twist.linear.x  = delta_s * odometryUpdateFrequency;     // v
+    odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
 
     return true;
 }
