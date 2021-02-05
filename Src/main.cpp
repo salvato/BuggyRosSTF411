@@ -122,19 +122,24 @@
 #endif
 
 #include <ros.h>
-#include <tf/tf.h>
-#include <geometry_msgs/Twist.h>
-#include <nav_msgs/Odometry.h>
 
-#include <geometry_msgs/Vector3.h>
-#include <geometry_msgs/Vector3Stamped.h>
-#include <geometry_msgs/QuaternionStamped.h>
-#include <sensor_msgs/Range.h>
+#include <tf/tf.h>
+#include <nav_msgs/Odometry.h>   // Published Robot Odometry
+#include <sensor_msgs/Imu.h>     // Published IMU Data
+#include <sensor_msgs/Range.h>   // Published Sonar Data
+
+#include <geometry_msgs/Twist.h> // Received Speed Data
 
 
 #define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
 #define SONAR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_3
 #define AHRS_UPDATE_CHANNEL  HAL_TIM_ACTIVE_CHANNEL_4
+
+#define MOTOR_CHANNEL TIM_CHANNEL_2
+#define SONAR_CHANNEL TIM_CHANNEL_3
+#define AHRS_CHANNEL  TIM_CHANNEL_4
+
+#define SAMPLING_IRQ TIM2_IRQn
 
 
 ///==============================
@@ -257,27 +262,17 @@ double rightTargetSpeed = 0.0;
 ///=============
 /// ROS stuff
 ///=============
-// in ros.h
-//template<class Hardware,
-//         int MAX_SUBSCRIBERS = 25,
-//         int MAX_PUBLISHERS  = 25,
-//         int INPUT_SIZE      = 1004,
-//         int OUTPUT_SIZE     = 1024>
-//class NodeHandle_
-//typedef NodeHandle_<STM32Hardware> NodeHandle;
 ros::NodeHandle nh;
 
 ros::Time last_cmd_vel_time;
 
-nav_msgs::Odometry               odom;
-geometry_msgs::Quaternion        actual_rotation;
-geometry_msgs::Vector3Stamped    actual_speed;
-sensor_msgs::Range               obstacleDistance;
+nav_msgs::Odometry odom;
+sensor_msgs::Imu   imuData;
+sensor_msgs::Range obstacleDistance;
 
-ros::Publisher rotation_pub("buggyRotation", &actual_rotation);
-ros::Publisher actual_speed_pub("buggySpeed", &actual_speed);
-ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
+ros::Publisher imu_pub("imu_data", &imuData);
 ros::Publisher odom_pub("odom", &odom);
+ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
 
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
@@ -304,12 +299,12 @@ Setup() {
     Init_Hardware();
     Init_ROS();
     // Enable the Periodic Samplig Timer Interrupt
-    HAL_NVIC_SetPriority(TIM2_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(TIM2_IRQn);
+    HAL_NVIC_SetPriority(SAMPLING_IRQ, 0, 0);
+    HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     // Start the Periodic Sampling of:
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_4); // AHRS
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_2); // Motors
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, TIM_CHANNEL_3); // Sonar
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, AHRS_CHANNEL); // AHRS
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL); // Motors
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, SONAR_CHANNEL); // Sonar
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
     last_cmd_vel_time = nh.now();
@@ -324,22 +319,31 @@ static void
 Loop() {
     if(isTimeToUpdateSonar) {
         isTimeToUpdateSonar = false;
-        HAL_NVIC_DisableIRQ(TIM2_IRQn);
+        HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
         obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
-        HAL_NVIC_EnableIRQ(TIM2_IRQn);
+        HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
         obstacleDistance.header.stamp = nh.now();
         obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
         obstacleDistance_pub.publish(&obstacleDistance);
-
-        rotation_pub.publish(&actual_rotation);
-        actual_speed_pub.publish(&actual_speed);
         //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
     }
 
     if(isTimeToUpdateOdometry) {
+        isTimeToUpdateOdometry = false;
         updateOdometry();
         odom.header.stamp = nh.now();
         odom_pub.publish(&odom);
+
+        float q0, q1, q2, q3;
+        HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
+        Madgwick.getRotation(&q0, &q1, &q2, &q3);
+        HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+        imuData.header.stamp = nh.now();
+        imuData.orientation.w = q0;
+        imuData.orientation.x = q1;
+        imuData.orientation.y = q2;
+        imuData.orientation.z = q3;
+        imu_pub.publish(&imuData);
     }
     nh.spinOnce();
 }
@@ -459,12 +463,12 @@ void
 Init_ROS() {
     nh.initNode();
 
-    if(!nh.advertise(rotation_pub))
-            Error_Handler();
-    if(!nh.advertise(actual_speed_pub))
-            Error_Handler();
+    if(!nh.advertise(odom_pub))
+        Error_Handler();
+    if(!nh.advertise(imu_pub))
+        Error_Handler();
     if(!nh.advertise(obstacleDistance_pub))
-            Error_Handler();
+        Error_Handler();
 
     if(!nh.subscribe(targetSpeed_sub))
         Error_Handler();
