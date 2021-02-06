@@ -138,6 +138,7 @@ LeftEncoderTimerInit() {
     hLeftEncoderTimer.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
     //sConfig.EncoderMode  = TIM_ENCODERMODE_TI1;
+    //sConfig.EncoderMode  = TIM_ENCODERMODE_TI2;
     sConfig.EncoderMode  = TIM_ENCODERMODE_TI12;
     sConfig.IC1Polarity  = TIM_ICPOLARITY_RISING;
     sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
@@ -277,7 +278,8 @@ RightEncoderTimerInit(void) {
     hRightEncoderTimer.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
 
     //sConfig.EncoderMode  = TIM_ENCODERMODE_TI1;
-    sConfig.EncoderMode  = TIM_ENCODERMODE_TI2;
+    //sConfig.EncoderMode  = TIM_ENCODERMODE_TI2;
+    sConfig.EncoderMode  = TIM_ENCODERMODE_TI12;
     sConfig.IC1Polarity  = TIM_ICPOLARITY_RISING;
     sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
     sConfig.IC1Prescaler = TIM_ICPSC_DIV1;

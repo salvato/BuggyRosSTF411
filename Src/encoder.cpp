@@ -12,8 +12,8 @@ Encoder::Encoder(TIM_HandleTypeDef *hEncodertimer)
     : htimer(hEncodertimer)
     , total(0)
 {
-    currElement = 0;
-    memset(countHistory, 0, sizeof(countHistory));
+//    currElement = 0;
+//    memset(countHistory, 0, sizeof(countHistory));
     start();
 }
 
@@ -30,14 +30,15 @@ Encoder::readAndResetCounts() { // in Counts
     int16_t counts = int16_t(htimer->Instance->CNT);
     htimer->Instance->CNT = 0;
     total += counts;
-    countHistory[currElement] = counts;
-    currElement++;
-    currElement = currElement % N_AVG;
-    double avgCounts = 0;
-    for(int i=0; i<N_AVG; i++) {
-        avgCounts += countHistory[i];
-    }
-    return avgCounts/N_AVG;
+    return double(counts);
+//    countHistory[currElement] = counts;
+//    currElement++;
+//    currElement = currElement % N_AVG;
+//    double avgCounts = 0;
+//    for(int i=0; i<N_AVG; i++) {
+//        avgCounts += countHistory[i];
+//    }
+//    return avgCounts/N_AVG;
 }
 
 

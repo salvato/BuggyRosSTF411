@@ -266,10 +266,9 @@ uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSampling
 uint32_t odometryUpdateFrequency = 15;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 
-#if defined SEND_SONAR
 uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
 uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
-#endif
+
 
 #if defined(SEND_IMU)
 bool isAHRSpresent          = false;
@@ -343,9 +342,7 @@ Setup() {
     HAL_TIM_OC_Start_IT(&hSamplingTimer, AHRS_CHANNEL); // AHRS
 #endif
     HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL); // Motors
-#if defined SEND_SONAR
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, SONAR_CHANNEL); // Sonar
-#endif
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, SONAR_CHANNEL); // Sonar & Odometry
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
@@ -393,8 +390,8 @@ Loop() {
             imuData.orientation.y = q2;
             imuData.orientation.z = q3;
             imu_pub.publish(&imuData); // Too many data to send (Covariance...
-            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 #endif
+            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
     }
     nh.spinOnce();
@@ -426,6 +423,8 @@ updateOdometry() {
     odom.pose.pose.orientation = tf::createQuaternionFromYaw(odom_pose[2]);
     /// Update the Odometry Twist (Instantaneouse Velocities)
     odom.twist.twist.linear.x  = delta_s * odometryUpdateFrequency;     // v
+    odom.twist.twist.linear.y  = wheel_l; // Only for debugging
+    odom.twist.twist.linear.z  = wheel_l; // Only for debugging
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
 
     return true;
@@ -565,8 +564,7 @@ HAL_MspInit(void) {
 // The received AngularTarget speed is in rad/s
 static void
 targetSpeed_cb(const geometry_msgs::Twist& speed) {
-    //double angSpeed  = speed.angular.z*TRACK_LENGTH*0.5; // Vt = Omega * R
-    double angSpeed  = speed.angular.z*TRACK_LENGTH; // sembrava troppo lento
+    double angSpeed  = speed.angular.z*TRACK_LENGTH*0.5; // Vt = Omega * R
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
     last_cmd_vel_time = nh.now();
@@ -623,15 +621,15 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
 #endif
-#if defined SEND_SONAR
         else if(htim->Channel == SONAR_UPDATE_CHANNEL) { // Time to Update Sonar Data ? (30Hz)
             htim->Instance->CCR3 += sonarSamplingPulses;
+#if defined SEND_SONAR
             uhCaptureIndex = 0;
             LL_TIM_IC_SetPolarity(TIM5, LL_TIM_CHANNEL_CH2, LL_TIM_IC_POLARITY_RISING);
             LL_TIM_EnableCounter(hSonarPulseTimer.Instance);
+#endif
             isTimeToUpdateOdometry = true; // We use this Timer to send the updated Odometry
         }
-#endif
     } // if(htim->Instance == hSamplingTimer.Instance)
 }
 
