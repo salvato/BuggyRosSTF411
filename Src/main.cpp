@@ -210,6 +210,8 @@ static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m
 ///===================
 /// Shared variables
 ///===================
+/// Require changing the value in:
+/// /opt/ros/noetic/lib/rosserial_python/serial_node.py
 unsigned int baudRate = 115200;
 
 double periodicClockFrequency = 10.0e6;// 10MHz
@@ -426,8 +428,9 @@ updateOdometry() {
     odom.pose.pose.orientation = tf::createQuaternionFromYaw(odom_pose[2]);
     /// Update the Odometry Twist (Instantaneouse Velocities)
     odom.twist.twist.linear.x  = delta_s * odometryUpdateFrequency;     // v
-//    odom.twist.twist.linear.y  = wheel_l; // Only for debugging
-//    odom.twist.twist.linear.z  = wheel_l; // Only for debugging
+    // Only for debugging
+///    odom.twist.twist.linear.y  = wheel_l;
+///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
 
     return true;
