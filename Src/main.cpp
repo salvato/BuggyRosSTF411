@@ -122,18 +122,22 @@
 #endif
 
 
-#define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
-#define SONAR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_3
-#define AHRS_UPDATE_CHANNEL  HAL_TIM_ACTIVE_CHANNEL_4
-
-#define MOTOR_CHANNEL TIM_CHANNEL_2
-#define SONAR_CHANNEL TIM_CHANNEL_3
-#define AHRS_CHANNEL  TIM_CHANNEL_4
-
-#define SAMPLING_IRQ TIM2_IRQn
-
 //#define SEND_SONAR
 //#define SEND_IMU
+
+#define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
+#define MOTOR_CHANNEL        TIM_CHANNEL_2
+
+#define ODOMETRY_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_3
+#define ODOMETRY_CHANNEL        TIM_CHANNEL_3
+
+//#define SONAR_UPDATE_CHANNEL    ODOMETRY_UPDATE_CHANNEL
+//#define SONAR_CHANNEL           ODOMETRY_CHANNEL
+
+#define AHRS_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_4
+#define AHRS_CHANNEL        TIM_CHANNEL_4
+
+#define SAMPLING_IRQ TIM2_IRQn
 
 #include <ros.h>
 
@@ -266,8 +270,8 @@ uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSampling
 uint32_t odometryUpdateFrequency = 15;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 
-uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
-uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
+//uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
+//uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
 
 
 #if defined(SEND_IMU)
@@ -339,10 +343,10 @@ Setup() {
     HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     // Start the Periodic Sampling of:
 #if defined(SEND_IMU)
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, AHRS_CHANNEL); // AHRS
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, AHRS_CHANNEL);     // AHRS
 #endif
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL); // Motors
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, SONAR_CHANNEL); // Sonar & Odometry
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
@@ -418,13 +422,12 @@ updateOdometry() {
     odom_pose[2] += delta_theta;
     odom.pose.pose.position.x = odom_pose[0];
     odom.pose.pose.position.y = odom_pose[1];
-    odom.pose.pose.position.z = 0;
     /// Compute Updated Odometric Orientation
     odom.pose.pose.orientation = tf::createQuaternionFromYaw(odom_pose[2]);
     /// Update the Odometry Twist (Instantaneouse Velocities)
     odom.twist.twist.linear.x  = delta_s * odometryUpdateFrequency;     // v
-    odom.twist.twist.linear.y  = wheel_l; // Only for debugging
-    odom.twist.twist.linear.z  = wheel_l; // Only for debugging
+//    odom.twist.twist.linear.y  = wheel_l; // Only for debugging
+//    odom.twist.twist.linear.z  = wheel_l; // Only for debugging
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
 
     return true;
@@ -518,7 +521,6 @@ AHRS_Init() {
 
 void
 Init_ROS() {
-    // Never Changed
     double pcov[36] = { 0.1, 0.0, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.1, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.0, 1.0e6, 0.0,   0.0,   0.0, // Z axis not valid
@@ -526,8 +528,12 @@ Init_ROS() {
                         0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
                         0.0, 0.0, 0.0,   0.0,   0.0,   0.2};
 
+    // Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
     memcpy(&(odom.twist.covariance), pcov, sizeof(double)*36);
+    odom.pose.pose.position.z = 0.0;
+    odom.twist.twist.linear.y = 0.0;
+    odom.twist.twist.linear.z = 0.0;
 
     nh.initNode();
 
@@ -621,8 +627,8 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
 #endif
-        else if(htim->Channel == SONAR_UPDATE_CHANNEL) { // Time to Update Sonar Data ? (30Hz)
-            htim->Instance->CCR3 += sonarSamplingPulses;
+        else if(htim->Channel == ODOMETRY_UPDATE_CHANNEL) { // Time to Update Odometry
+            htim->Instance->CCR3 += odometrySamplingPulses;
 #if defined SEND_SONAR
             uhCaptureIndex = 0;
             LL_TIM_IC_SetPolarity(TIM5, LL_TIM_CHANNEL_CH2, LL_TIM_IC_POLARITY_RISING);
