@@ -208,8 +208,8 @@ static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m
 ///===================
 unsigned int baudRate = 115200;
 
-double periodicClockFrequency = 10.0e6;  // 10MHz
-double pwmClockFrequency      = 20.0e3;  // 10KHz
+double periodicClockFrequency = 10.0e6;// 10MHz
+double pwmClockFrequency      = 1.0e5; // 100KHz
 
 #if defined SEND_SONAR
 double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
