@@ -209,7 +209,7 @@ static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m
 unsigned int baudRate = 115200;
 
 double periodicClockFrequency = 10.0e6;// 10MHz
-double pwmClockFrequency      = 1.0e5; // 100KHz
+double pwmClockFrequency      = 3.0e4; // 30KHz (corresponding to ~120Hz PWM Period)
 
 #if defined SEND_SONAR
 double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
@@ -232,9 +232,9 @@ ControlledMotor* pLeftControlledMotor  = nullptr;
 ControlledMotor* pRightControlledMotor = nullptr;
 
 // Inital values for PIDs (externally estimated)
-static const double LeftP  = 0.049;
-static const double LeftI  = 0.002;
-static const double LeftD  = 0.001;
+static const double LeftP  = 0.101;
+static const double LeftI  = 0.008;
+static const double LeftD  = 0.003;
 
 static const double RightP = 0.101;
 static const double RightI = 0.008;
@@ -260,7 +260,7 @@ static double odom_pose[3] = {0.0};
 uint32_t AHRSSamplingFrequency   = 400; // [Hz]
 uint32_t AHRSSamplingPulses      = uint32_t(periodicClockFrequency/AHRSSamplingFrequency +0.5); // [Hz]
 
-uint32_t motorSamplingFrequency  = 50;  // [Hz]
+uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
 
 uint32_t odometryUpdateFrequency = 15;  // [Hz]
