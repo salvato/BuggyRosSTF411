@@ -270,8 +270,8 @@ uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSampling
 uint32_t odometryUpdateFrequency = 15;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 
-//uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
-//uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
+uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
+uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
 
 
 #if defined(SEND_IMU)
