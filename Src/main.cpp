@@ -203,7 +203,7 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 /// Buggy Mechanics
 ///==================
 static const double WHEEL_DIAMETER               = 0.069;  // [m]
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
+static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // = 432 ==>
 static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m]
 
 
@@ -400,6 +400,14 @@ Loop() {
             HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
     }
+    // If no new Speed Data received in right time
+    // Halt the Robot to avoid possible damages
+    if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
+        leftTargetSpeed  = 0.0; // in m/s
+        rightTargetSpeed = 0.0; // in m/s
+    }
+    pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+    pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
     nh.spinOnce();
 }
 ///=======================================================================
@@ -452,12 +460,13 @@ Init_Hardware() {
 
     // Initialize Dc Motors
     PwmTimerInit();
+
     // =============> DcMotor(forwardPort, forwardPin, reversePort,  reversePin,
     //                        pwmPort,  pwmPin, pwmTimer, timerChannel)
     pLeftMotor  = new DcMotor(GPIOC, GPIO_PIN_8, GPIOC, GPIO_PIN_9,
-                              GPIOA, GPIO_PIN_6, &hPwmTimer, TIM_CHANNEL_1);
+    GPIOA, GPIO_PIN_6, &hPwmTimer, TIM_CHANNEL_1);
     pRightMotor = new DcMotor(GPIOC, GPIO_PIN_10, GPIOC, GPIO_PIN_11,
-                              GPIOA, GPIO_PIN_7, &hPwmTimer, TIM_CHANNEL_2);
+    GPIOA, GPIO_PIN_7, &hPwmTimer, TIM_CHANNEL_2);
 
     // Initialize Motor Controllers
     pLeftControlledMotor  = new ControlledMotor(pLeftMotor,  pLeftEncoder,  motorSamplingFrequency);
@@ -577,11 +586,6 @@ targetSpeed_cb(const geometry_msgs::Twist& speed) {
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
     last_cmd_vel_time = nh.now();
-/// TODO:
-/// Da spostare in Loop() per tenere conto del fatto che, se si interrompe
-/// il collegamento con il Controller Remoto, Buggy deve FERMARSI !!!
-    pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
-    pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
 }
 
 
