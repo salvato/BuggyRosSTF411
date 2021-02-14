@@ -36,9 +36,9 @@
 #define ROS_TRANSFORM_BROADCASTER_H_
 
 #include "ros.h"
-#include "tfMessage.h"
+#include "tf2_msgs/TFMessage.h"
 
-namespace tf
+namespace tf2_msgs
 {
 
 class TransformBroadcaster
@@ -59,7 +59,7 @@ public:
   }
 
 private:
-  tf::tfMessage internal_msg;
+  tf2_msgs::TFMessage internal_msg;
   ros::Publisher publisher_;
 };
 

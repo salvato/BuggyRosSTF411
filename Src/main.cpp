@@ -141,11 +141,12 @@
 
 #include <ros.h>
 
-#include <tf/tf.h>
-
 #include <geometry_msgs/Twist.h>   // Received Speed Data
 #include <geometry_msgs/Vector3.h> // Received PID Values
 #include <nav_msgs/Odometry.h>     // Published Robot Odometry
+
+#include <tf/tf.h>
+
 
 #if defined(SEND_IMU)
 #include <sensor_msgs/Imu.h>       // Published IMU Data
@@ -383,7 +384,6 @@ Loop() {
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
             updateOdometry();
-            odom.header.stamp = nh.now();
             odom_pub.publish(&odom);
 #if defined(SEND_IMU)
             float q0, q1, q2, q3;
@@ -440,6 +440,7 @@ updateOdometry() {
 ///    odom.twist.twist.linear.y  = wheel_l;
 ///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
+    odom.header.stamp = nh.now();
 
     return true;
 }
@@ -546,6 +547,8 @@ Init_ROS() {
     odom.pose.pose.position.z = 0.0;
     odom.twist.twist.linear.y = 0.0;
     odom.twist.twist.linear.z = 0.0;
+    odom.header.frame_id = {"odom"};
+    odom.child_frame_id = {"base_footprint"};
 
     nh.initNode();
 
