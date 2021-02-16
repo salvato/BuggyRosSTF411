@@ -146,7 +146,6 @@
 #include <nav_msgs/Odometry.h>     // Published Robot Odometry
 
 #include <tf/tf.h>
-#include <tf/transform_broadcaster.h>
 
 #if defined(SEND_IMU)
 #include <sensor_msgs/Imu.h>       // Published IMU Data
@@ -305,10 +304,7 @@ ros::NodeHandle nh;
 ros::Time last_cmd_vel_time;
 
 nav_msgs::Odometry odom;
-geometry_msgs::TransformStamped odom_trans;
-
 ros::Publisher odom_pub("odom", &odom);
-tf2_msgs::TransformBroadcaster odom_broadcaster;
 
 
 #if defined(SEND_IMU)
@@ -390,9 +386,7 @@ Loop() {
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
             updateOdometry();
-            //send the transform
-            odom_broadcaster.sendTransform(odom_trans);
-//            odom_pub.publish(&odom);
+            odom_pub.publish(&odom);
 #if defined(SEND_IMU)
             float q0, q1, q2, q3;
             HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
@@ -456,18 +450,6 @@ updateOdometry() {
 ///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
     odom.header.stamp = current_time;
-    odom.header.frame_id = "odom";
-    odom.child_frame_id  = "base_link";
-
-    // Any odometry source must publish information about
-    // the coordinate frame that it manages.
-    odom_trans.header.stamp = current_time;
-    odom_trans.header.frame_id = "odom";
-    odom_trans.child_frame_id  = "base_link";
-    odom_trans.transform.translation.x = odom.pose.pose.position.x;
-    odom_trans.transform.translation.y = odom.pose.pose.position.y;
-    odom_trans.transform.translation.z = 0.0;
-    odom_trans.transform.rotation = odom.pose.pose.orientation;
 
     return true;
 }
@@ -568,14 +550,14 @@ Init_ROS() {
                         0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
                         0.0, 0.0, 0.0,   0.0,   0.0,   0.2};
 
-    // Never Change
+    // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
     memcpy(&(odom.twist.covariance), pcov, sizeof(double)*36);
     odom.pose.pose.position.z = 0.0;
     odom.twist.twist.linear.y = 0.0;
     odom.twist.twist.linear.z = 0.0;
     odom.header.frame_id = {"odom"};
-    odom.child_frame_id = {"base_footprint"};
+    odom.child_frame_id = {"base_link"};
 
     nh.initNode();
 
