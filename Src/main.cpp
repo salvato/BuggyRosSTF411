@@ -146,7 +146,7 @@
 #include <nav_msgs/Odometry.h>     // Published Robot Odometry
 
 #include <tf/tf.h>
-
+#include <tf/transform_broadcaster.h>
 
 #if defined(SEND_IMU)
 #include <sensor_msgs/Imu.h>       // Published IMU Data
@@ -204,7 +204,8 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 /// Buggy Mechanics
 ///==================
 static const double WHEEL_DIAMETER               = 0.069;  // [m]
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // = 432 ==>
+//static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // Slow Motors !!!
+static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m]
 
 
@@ -304,7 +305,11 @@ ros::NodeHandle nh;
 ros::Time last_cmd_vel_time;
 
 nav_msgs::Odometry odom;
+geometry_msgs::TransformStamped odom_trans;
+
 ros::Publisher odom_pub("odom", &odom);
+tf2_msgs::TransformBroadcaster odom_broadcaster;
+
 
 #if defined(SEND_IMU)
 sensor_msgs::Imu   imuData;
@@ -320,6 +325,7 @@ ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
 ros::Subscriber<geometry_msgs::Vector3> right_PID_sub("rightPID", &right_PID_cb);
 
+geometry_msgs::TransformStamped transform;
 
 ///=======================================================================
 ///                                Main
@@ -384,6 +390,8 @@ Loop() {
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
             updateOdometry();
+            //send the transform
+            odom_broadcaster.sendTransform(odom_trans);
             odom_pub.publish(&odom);
 #if defined(SEND_IMU)
             float q0, q1, q2, q3;
@@ -399,13 +407,18 @@ Loop() {
 #endif
             HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
+        // If no new Speed Data received in right time
+        // Halt the Robot to avoid possible damages
+        if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
+            leftTargetSpeed  = 0.0; // in m/s
+            rightTargetSpeed = 0.0; // in m/s
+        }
     }
-    // If no new Speed Data received in right time
-    // Halt the Robot to avoid possible damages
-    if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
+    else { // Disconnected !!!
         leftTargetSpeed  = 0.0; // in m/s
         rightTargetSpeed = 0.0; // in m/s
-    }
+    } // if(nh.connected()
+
     pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
     pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
     nh.spinOnce();
@@ -420,6 +433,8 @@ Loop() {
 //=========================
 bool
 updateOdometry() {
+    ros::Time current_time = nh.now();
+
     /// Wheels Path Length in the Sampling Interval
     double wheel_l = pLeftControlledMotor->spaceTraveled();
     double wheel_r = pRightControlledMotor->spaceTraveled();
@@ -440,7 +455,19 @@ updateOdometry() {
 ///    odom.twist.twist.linear.y  = wheel_l;
 ///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
-    odom.header.stamp = nh.now();
+    odom.header.stamp = current_time;
+    odom.header.frame_id = "odom";
+    odom.child_frame_id  = "base_link";
+
+    geometry_msgs::TransformStamped odom_trans;
+    odom_trans.header.stamp = current_time;
+    odom_trans.header.frame_id = "odom";
+    odom_trans.child_frame_id = "base_link";
+
+    odom_trans.transform.translation.x = odom.pose.pose.position.x;
+    odom_trans.transform.translation.y = odom.pose.pose.position.y;
+    odom_trans.transform.translation.z = 0.0;
+    odom_trans.transform.rotation = odom.pose.pose.orientation;
 
     return true;
 }

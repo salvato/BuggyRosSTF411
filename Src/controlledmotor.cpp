@@ -42,7 +42,7 @@ ControlledMotor::Update() {
 void
 ControlledMotor::setTargetSpeed(double newSpeed) {
     // Calculate setpoint as counts/sec
-    setpoint = -newSpeed*encoderCountsPerMeter;
+    setpoint = newSpeed*encoderCountsPerMeter;
     pPID->SetMode(PID::AUTOMATIC);
 }
 
