@@ -446,8 +446,9 @@ updateOdometry() {
     /// Update the Odometry Twist (Instantaneouse Velocities)
     odom.twist.twist.linear.x  = delta_s * odometryUpdateFrequency;     // v
     // Only for debugging
-///    odom.twist.twist.linear.y  = wheel_l;
-///    odom.twist.twist.linear.z  = wheel_r;
+    ///    odom.twist.twist.linear.y  = odom_pose[2];
+    ///    odom.twist.twist.linear.y  = wheel_l;
+    ///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
     odom.header.stamp = current_time;
 
