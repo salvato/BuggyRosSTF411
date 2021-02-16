@@ -392,7 +392,7 @@ Loop() {
             updateOdometry();
             //send the transform
             odom_broadcaster.sendTransform(odom_trans);
-            odom_pub.publish(&odom);
+//            odom_pub.publish(&odom);
 #if defined(SEND_IMU)
             float q0, q1, q2, q3;
             HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
@@ -459,11 +459,11 @@ updateOdometry() {
     odom.header.frame_id = "odom";
     odom.child_frame_id  = "base_link";
 
-    geometry_msgs::TransformStamped odom_trans;
+    // Any odometry source must publish information about
+    // the coordinate frame that it manages.
     odom_trans.header.stamp = current_time;
     odom_trans.header.frame_id = "odom";
-    odom_trans.child_frame_id = "base_link";
-
+    odom_trans.child_frame_id  = "base_link";
     odom_trans.transform.translation.x = odom.pose.pose.position.x;
     odom_trans.transform.translation.y = odom.pose.pose.position.y;
     odom_trans.transform.translation.z = 0.0;
