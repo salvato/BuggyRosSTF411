@@ -27,7 +27,12 @@ Encoder::start() {
 
 double
 Encoder::readAndResetCounts() { // in Counts
+
+#if defined(SLOW_MOTORS)
+    int16_t counts = -int16_t(htimer->Instance->CNT);
+#else
     int16_t counts = int16_t(htimer->Instance->CNT);
+#endif
     htimer->Instance->CNT = 0;
     total += counts;
     return double(counts);

@@ -203,9 +203,12 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 /// Buggy Mechanics
 ///==================
 static const double WHEEL_DIAMETER               = 0.069;  // [m]
-//static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // Slow Motors !!!
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m]
+#if defined (SLOW_MOTORS)
+static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // Slow Motors !!!
+#else
+static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
+#endif
 
 
 ///===================
@@ -474,10 +477,17 @@ Init_Hardware() {
 
     // =============> DcMotor(forwardPort, forwardPin, reversePort,  reversePin,
     //                        pwmPort,  pwmPin, pwmTimer, timerChannel)
+#if defined(SLOW_MOTORS)
+    pLeftMotor  = new DcMotor(GPIOC, GPIO_PIN_9, GPIOC, GPIO_PIN_8,
+    GPIOA, GPIO_PIN_6, &hPwmTimer, TIM_CHANNEL_1);
+    pRightMotor = new DcMotor(GPIOC, GPIO_PIN_11, GPIOC, GPIO_PIN_10,
+    GPIOA, GPIO_PIN_7, &hPwmTimer, TIM_CHANNEL_2);
+#else
     pLeftMotor  = new DcMotor(GPIOC, GPIO_PIN_8, GPIOC, GPIO_PIN_9,
     GPIOA, GPIO_PIN_6, &hPwmTimer, TIM_CHANNEL_1);
     pRightMotor = new DcMotor(GPIOC, GPIO_PIN_10, GPIOC, GPIO_PIN_11,
     GPIOA, GPIO_PIN_7, &hPwmTimer, TIM_CHANNEL_2);
+#endif
 
     // Initialize Motor Controllers
     pLeftControlledMotor  = new ControlledMotor(pLeftMotor,  pLeftEncoder,  motorSamplingFrequency);
