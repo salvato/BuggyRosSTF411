@@ -1,6 +1,5 @@
 #pragma once
 
-#define SLOW_MOTORS
 
 #ifdef __cplusplus
 extern "C" {

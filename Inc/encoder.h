@@ -19,6 +19,4 @@ private:
     TIM_HandleTypeDef* htimer;
     uint32_t           encoderChannel;
     uint64_t           total;
-//    int currElement;
-//    int countHistory[N_AVG];
 };
