@@ -202,10 +202,10 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 ///==================
 /// Buggy Mechanics
 ///==================
-static const double WHEEL_DIAMETER               = 0.069;  // [m]
-static const double TRACK_LENGTH                 = 0.2;    // Tire's Distance [m]
+static const double WHEEL_DIAMETER               = 0.067;  // [m]
+static const double TRACK_LENGTH                 = 0.209;    // Tire's Distance [m]
 #if defined (SLOW_MOTORS)
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*(9*75)*4; // Slow Motors !!!
+static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*10*4; // Slow Motors !!!
 #else
 static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 #endif
@@ -273,7 +273,7 @@ uint32_t AHRSSamplingPulses      = uint32_t(periodicClockFrequency/AHRSSamplingF
 uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
 
-uint32_t odometryUpdateFrequency = 15;  // [Hz]
+uint32_t odometryUpdateFrequency = 30;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 
 uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
@@ -559,7 +559,7 @@ Init_ROS() {
                         0.0, 0.0, 1.0e6, 0.0,   0.0,   0.0, // Z axis not valid
                         0.0, 0.0, 0.0,   1.0e6, 0.0,   0.0, // Pitch and ...
                         0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
-                        0.0, 0.0, 0.0,   0.0,   0.0,   0.2};
+                        0.0, 0.0, 0.0,   0.0,   0.0,   0.02};
 
     // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
