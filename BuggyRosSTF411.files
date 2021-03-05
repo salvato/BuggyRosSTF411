@@ -1188,6 +1188,7 @@ Inc/map_msgs/ProjectedMapInfo.h
 Inc/map_msgs/ProjectedMapsInfo.h
 Inc/map_msgs/SaveMap.h
 Inc/map_msgs/SetMapProjections.h
+Inc/mpu6050.h
 Inc/nav_msgs/GetMap.h
 Inc/nav_msgs/GetMapAction.h
 Inc/nav_msgs/GetMapActionFeedback.h
@@ -1378,6 +1379,7 @@ Src/duration.cpp
 Src/encoder.cpp
 Src/i2c.cpp
 Src/main.cpp
+Src/mpu6050.cpp
 Src/stm32f4xx_it.c
 Src/system_stm32f4xx.c
 Src/tim.cpp
