@@ -136,6 +136,16 @@ ADXL345::get_Gxyz(volatile float *xyz){
 }
 
 
+void
+ADXL345::get_Gxyz(geometry_msgs::Vector3* acceleration) {
+    int16_t xyz_int[3];
+    readAccel(xyz_int);
+    acceleration->x = double(xyz_int[0]) * gains[0];
+    acceleration->y = double(xyz_int[1]) * gains[1];
+    acceleration->z = double(xyz_int[2]) * gains[2];
+};
+
+
 // Writes val to address register on device
 bool
 ADXL345::writeTo(byte address, byte val) {

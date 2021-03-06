@@ -17,6 +17,7 @@
 
 #include "stm32f4xx_hal.h"
 #include "inttypes.h"
+#include <geometry_msgs/Vector3.h>
 #define byte uint8_t
 
 
@@ -116,6 +117,7 @@ public:
     void readAccel(int16_t *xyx);
     void readAccel(int16_t *x, int16_t *y, int16_t *z);
     void get_Gxyz(volatile float *xyz);
+    void get_Gxyz(geometry_msgs::Vector3 *xyz);
     void setAxisGains(float *_gains);
     void getAxisGains(float *_gains);
     void setAxisOffset(int16_t x, int16_t y, int16_t z);

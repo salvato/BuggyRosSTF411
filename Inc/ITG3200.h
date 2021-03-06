@@ -32,6 +32,7 @@
 #include "stm32f4xx_hal.h"
 
 #include "inttypes.h"
+#include <geometry_msgs/Vector3.h>
 #define byte uint8_t
 
 
@@ -168,6 +169,7 @@ public:
     void readGyroRawCal(int16_t *_GyroX, int16_t *_GyroY, int16_t *_GyroZ);
     void readGyroRawCal(int16_t *_GyroXYZ);
     void readGyro(volatile float *_GyroXYZ); // includes gain and offset
+    void readGyro(geometry_msgs::Vector3 *Gxyz); // includes gain and offset
     void readGyro(volatile float *_GyroX, volatile float *_GyroY, volatile float *_GyroZ); // includes gain and offset
     // Power management
     void reset(); // after reset all registers have default values

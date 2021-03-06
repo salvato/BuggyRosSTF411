@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 #include "stm32f4xx_hal.h"
+#include <geometry_msgs/Vector3.h>
 
 #include <inttypes.h>
 
@@ -70,7 +71,7 @@ public:
     void ReadRawAxis(MagnetometerRaw *raw);
     void ReadScaledAxis(MagnetometerScaled *scaled);
     void ReadScaledAxis(volatile float *value);
-
+    void ReadScaledAxis(volatile geometry_msgs::Vector3* value);
     int16_t SetMeasurementMode(uint8_t mode);
     int16_t SetScale(int16_t milliGauss);
 

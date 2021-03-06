@@ -124,9 +124,10 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+#define DEG2RAD(x) (x)*M_PI/180.0
 
 //#define SEND_SONAR
-//#define SEND_IMU
+#define SEND_IMU
 
 #define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
 #define MOTOR_CHANNEL        TIM_CHANNEL_2
@@ -219,7 +220,7 @@ static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 ///===================
 /// Require changing the value in:
 /// /opt/ros/noetic/lib/rosserial_python/serial_node.py
-unsigned int baudRate = 460800;
+unsigned int baudRate = 921600; // We can try greater speeds...
 
 double periodicClockFrequency = 10.0e6;// 10MHz
 double pwmClockFrequency      = 3.0e4; // 30KHz (corresponding to ~120Hz PWM Period)
@@ -262,6 +263,7 @@ Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
 static float AccelValues[3];
 static float GyroValues[3];
 static float MagValues[3];
+float q0, q1, q2, q3;
 #endif
 
 static double odom_pose[3] = {0.0};
@@ -314,7 +316,8 @@ ros::Publisher odom_pub("odom", &odom);
 
 
 #if defined(SEND_IMU)
-sensor_msgs::Imu   imuData;
+sensor_msgs::Imu imuData;
+geometry_msgs::Vector3 compass_value;
 ros::Publisher imu_pub("imu_data", &imuData);
 #endif
 
@@ -326,8 +329,6 @@ ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
 ros::Subscriber<geometry_msgs::Vector3> right_PID_sub("rightPID", &right_PID_cb);
-
-geometry_msgs::TransformStamped transform;
 
 ///=======================================================================
 ///                                Main
@@ -374,6 +375,8 @@ Setup() {
 ///    Main Loop
 ///=======================================================================
 
+int nn=1;
+
 static void
 Loop() {
     if(nh.connected()) {
@@ -391,23 +394,19 @@ Loop() {
 #endif
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
-            updateOdometry();
-            odom_pub.publish(&odom);
+            nn = 1-nn;
+            if(nn==0) {
+                updateOdometry();
+                odom_pub.publish(&odom);
+            }
+            else {
 #if defined(SEND_IMU)
-            float q0, q1, q2, q3;
-            HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
-            Madgwick.getRotation(&q0, &q1, &q2, &q3);
-            HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
-            imuData.header.stamp = nh.now();
-            imuData.orientation.w = q0;
-            imuData.orientation.x = q1;
-            imuData.orientation.y = q2;
-            imuData.orientation.z = q3;
-            imu_pub.publish(&imuData); // Too many data to send (Covariance...
+                imu_pub.publish(&imuData); // Too Many Data to Send (Covariance...
 #endif
+            }
             HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
-        // If no new Speed Data received in right time
+        // If No New Speed Data have been Received in Right Time
         // Halt the Robot to avoid possible damages
         if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
             leftTargetSpeed  = 0.0; // in m/s
@@ -564,6 +563,11 @@ Init_ROS() {
                         0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
                         0.0, 0.0, 0.0,   0.0,   0.0,   0.02};
 
+    // TODO: Assign more realistic values for each quantity
+    double imucov[9] = { 0.1, 0.0, 0.0,
+                         0.0, 0.1, 0.0,
+                         0.0, 0.0, 0.1 };
+
     // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
     memcpy(&(odom.twist.covariance), pcov, sizeof(double)*36);
@@ -572,6 +576,11 @@ Init_ROS() {
     odom.twist.twist.linear.z = 0.0;
     odom.header.frame_id = {"odom"};
     odom.child_frame_id = {"base_link"};
+
+    imuData.header.frame_id = {"imu_link"};
+    memcpy(&(imuData.linear_acceleration_covariance), imucov, sizeof(double)*9);
+    memcpy(&(imuData.angular_velocity_covariance),    imucov, sizeof(double)*9);
+    memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
 
     nh.initNode();
 
@@ -655,9 +664,23 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
                 Magn.ReadScaledAxis(MagValues);
-                Madgwick.update(GyroValues, AccelValues, MagValues);
+                Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
+                imuData.header.stamp = nh.now();
+                Madgwick.getRotation(&q0, &q1, &q2, &q3);
+                // Convert accel g to m/sec^2
+                imuData.linear_acceleration.x = AccelValues[0]*9.81;
+                imuData.linear_acceleration.y = AccelValues[1]*9.81;
+                imuData.linear_acceleration.z = AccelValues[2]*9.81;
+                // Convert gyroscope degrees/sec to radians/sec
+                imuData.angular_velocity.x = DEG2RAD(GyroValues[0]);
+                imuData.angular_velocity.y = DEG2RAD(GyroValues[1]);
+                imuData.angular_velocity.z = DEG2RAD(GyroValues[2]);
+                imuData.orientation.w = q0;
+                imuData.orientation.x = q1;
+                imuData.orientation.y = q2;
+                imuData.orientation.z = q3;
+                //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
-            //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
 #endif
         else if(htim->Channel == ODOMETRY_UPDATE_CHANNEL) { // Time to Update Odometry

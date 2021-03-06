@@ -151,6 +151,16 @@ HMC5883L::ReadScaledAxis(volatile float* value) {
 
 
 void
+HMC5883L::ReadScaledAxis(volatile geometry_msgs::Vector3* value) {
+    MagnetometerRaw raw;
+    ReadRawAxis(&raw);
+    value->x = double(raw.XAxis * m_Scale);
+    value->y = double(raw.YAxis * m_Scale);
+    value->z = double(raw.ZAxis * m_Scale);
+}
+
+
+void
 HMC5883L::Write(uint8_t address, uint8_t val) {
     std::array<uint8_t, 2> data{address, val};
     HAL_StatusTypeDef result;

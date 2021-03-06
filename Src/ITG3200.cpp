@@ -348,6 +348,15 @@ ITG3200::readGyro(volatile float *_GyroXYZ){
     readGyro(_GyroXYZ, _GyroXYZ+1, _GyroXYZ+2);
 }
 
+void
+ITG3200::readGyro(geometry_msgs::Vector3 *Gxyz){
+    float GyroX, GyroY, GyroZ;
+    readGyro(&GyroX, &GyroY, &GyroZ);
+    Gxyz->x = double(GyroX);
+    Gxyz->y = double(GyroY);
+    Gxyz->z = double(GyroZ);
+}
+
 
 void
 ITG3200::reset() {
