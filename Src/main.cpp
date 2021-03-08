@@ -57,7 +57,7 @@
 //=============================================
 // Channel2         ------> Motors Sampling
 // Channel3         ------> Sonar Sampling
-// Channel4         ------> AHRS Sampling
+// Channel4         ------> IMU Sampling
 
 
 //==================================
@@ -155,8 +155,8 @@
     #define SONAR_CHANNEL           ODOMETRY_CHANNEL
 #endif
 
-#define AHRS_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_4
-#define AHRS_CHANNEL        TIM_CHANNEL_4
+#define IMU_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_4
+#define IMU_CHANNEL        TIM_CHANNEL_4
 
 #define SAMPLING_IRQ TIM2_IRQn
 
@@ -168,7 +168,7 @@ static void Setup();
 static void Loop();
 static void Init_Hardware();
 #if defined(SEND_IMU)
-    static bool AHRS_Init();
+    static bool IMU_Init();
 #endif
 static void Init_ROS();
 static bool updateOdometry();
@@ -260,9 +260,9 @@ static const double RightD = 0.003;
     ITG3200  Gyro;     // 400KHz I2C Capable
     #if !defined(NO_MAG)
         HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
-        Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
         static float MagValues[3];
-        float qw, qx, qy, qz;
+        Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
+        float qw,  qx,  qy,  qz;
         float q0w, q0x, q0y, q0z;
     #endif
     static float AccelValues[3];
@@ -275,8 +275,8 @@ static double odom_pose[3] = {0.0};
 ///===================
 /// Update Intervals
 ///===================
-uint32_t AHRSSamplingFrequency   = 400; // [Hz]
-uint32_t AHRSSamplingPulses      = uint32_t(periodicClockFrequency/AHRSSamplingFrequency +0.5); // [Hz]
+uint32_t IMUSamplingFrequency   = 400; // [Hz]
+uint32_t IMUSamplingPulses      = uint32_t(periodicClockFrequency/IMUSamplingFrequency +0.5); // [Hz]
 
 uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
@@ -289,7 +289,7 @@ uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSampling
 
 
 #if defined(SEND_IMU)
-    bool isAHRSpresent          = false;
+    bool isIMUpresent          = false;
 #endif
 
 bool isTimeToUpdateSonar    = false;
@@ -376,7 +376,7 @@ Setup() {
     HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     // Start the Periodic Sampling of:
 #if defined(SEND_IMU)
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, AHRS_CHANNEL);     // AHRS
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);     // IMU
 #endif
     HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
     HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
@@ -516,7 +516,7 @@ Init_Hardware() {
 #if defined(SEND_IMU)
     // Initialize 10DOF Sensor
     I2C2_Init();
-    isAHRSpresent = AHRS_Init();
+    isIMUpresent = IMU_Init();
 #endif
 
 #if defined SEND_SONAR
@@ -526,13 +526,13 @@ Init_Hardware() {
 #endif
 
     // Initialize Periodic Samplig Timer
-    SamplingTimerInit(AHRSSamplingPulses, motorSamplingPulses, odometrySamplingPulses);
+    SamplingTimerInit(IMUSamplingPulses, motorSamplingPulses, odometrySamplingPulses);
 }
 
 
 #if defined(SEND_IMU)
 bool
-AHRS_Init() {
+IMU_Init() {
     if(!Acc.init(ADXL345_ADDR_ALT_LOW, &hi2c2))
         return false;
 
@@ -551,7 +551,7 @@ AHRS_Init() {
         if(Magn.SetMeasurementMode(Measurement_Continuous) != 0)
             return false;
 
-        Madgwick.begin(float(AHRSSamplingFrequency));
+        Madgwick.begin(float(IMUSamplingFrequency));
         while(!Acc.getInterruptSource(7)) {}
         Acc.get_Gxyz(AccelValues);
         while(!Gyro.isRawDataReadyOn()) {}
@@ -681,9 +681,9 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             }
         }
 #if defined(SEND_IMU)
-        else if(htim->Channel == AHRS_UPDATE_CHANNEL) { // Time to Update AHRS Data ? (400Hz)
-            htim->Instance->CCR4 += AHRSSamplingPulses;
-            if(isAHRSpresent) {
+        else if(htim->Channel == IMU_UPDATE_CHANNEL) { // Time to Update IMU Data ? (400Hz)
+            htim->Instance->CCR4 += IMUSamplingPulses;
+            if(isIMUpresent) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
                 #if !defined(NO_MAG)
