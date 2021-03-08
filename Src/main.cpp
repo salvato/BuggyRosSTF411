@@ -566,7 +566,7 @@ AHRS_Init() {
         }
         Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
         q0w = -q0w;
-        odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
+        // >>>>>>>>>>>>>> odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
     #endif
     return true;
 }
@@ -600,7 +600,9 @@ Init_ROS() {
     imuData.header.frame_id = {"imu_link"};
     memcpy(&(imuData.linear_acceleration_covariance), imucov, sizeof(double)*9);
     memcpy(&(imuData.angular_velocity_covariance),    imucov, sizeof(double)*9);
-    imucov[0] = -1.0;
+    #if !defined(NO_MAG)
+        imucov[0] = -1.0;
+    #endif
     memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
 
     nh.initNode();
