@@ -91,6 +91,7 @@ ControlledMotor::getCurrentSpeed() { // in m/s
 }
 
 
+/// Returns the space (in m) covered by the wheel
 double
 ControlledMotor::spaceTraveled () { // in [m]
     return double(pEncoder->readAndResetTotal())/encoderCountsPerMeter;

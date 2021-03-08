@@ -103,6 +103,9 @@
 //=============================================================================
 */
 
+//#define SEND_SONAR
+#define SEND_IMU
+
 #include "main.h"
 #include "tim.h"
 #include "i2c.h"
@@ -118,16 +121,25 @@
 #include "MadgwickAHRS.h"
 #include "string.h" // for memset()
 #ifdef  USE_FULL_ASSERT
-#include "stdio.h"
+    #include "stdio.h"
+#endif
+// ROS includes
+#include <ros.h>
+#include <tf/tf.h>
+#include <geometry_msgs/Twist.h>   // Received Speed Data
+#include <geometry_msgs/Vector3.h> // Received PID Values
+#include <nav_msgs/Odometry.h>     // Published Robot Odometry
+#if defined(SEND_IMU)
+    #include <sensor_msgs/Imu.h>       // Published IMU Data
+#endif
+#if defined SEND_SONAR
+    #include <sensor_msgs/Range.h>     // Published Sonar Data
 #endif
 
 #ifndef M_PI
-#define M_PI 3.14159265358979323846
+    #define M_PI 3.14159265358979323846
 #endif
 #define DEG2RAD(x) (x)*M_PI/180.0
-
-//#define SEND_SONAR
-#define SEND_IMU
 
 #define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
 #define MOTOR_CHANNEL        TIM_CHANNEL_2
@@ -135,29 +147,15 @@
 #define ODOMETRY_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_3
 #define ODOMETRY_CHANNEL        TIM_CHANNEL_3
 
-//#define SONAR_UPDATE_CHANNEL    ODOMETRY_UPDATE_CHANNEL
-//#define SONAR_CHANNEL           ODOMETRY_CHANNEL
+#if defined SEND_SONAR
+    #define SONAR_UPDATE_CHANNEL    ODOMETRY_UPDATE_CHANNEL
+    #define SONAR_CHANNEL           ODOMETRY_CHANNEL
+#endif
 
 #define AHRS_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_4
 #define AHRS_CHANNEL        TIM_CHANNEL_4
 
 #define SAMPLING_IRQ TIM2_IRQn
-
-#include <ros.h>
-
-#include <geometry_msgs/Twist.h>   // Received Speed Data
-#include <geometry_msgs/Vector3.h> // Received PID Values
-#include <nav_msgs/Odometry.h>     // Published Robot Odometry
-
-#include <tf/tf.h>
-
-#if defined(SEND_IMU)
-#include <sensor_msgs/Imu.h>       // Published IMU Data
-#endif
-
-#if defined SEND_SONAR
-#include <sensor_msgs/Range.h>   // Published Sonar Data
-#endif
 
 
 ///==============================
@@ -167,7 +165,7 @@ static void Setup();
 static void Loop();
 static void Init_Hardware();
 #if defined(SEND_IMU)
-static bool AHRS_Init();
+    static bool AHRS_Init();
 #endif
 static void Init_ROS();
 static bool updateOdometry();
@@ -190,12 +188,12 @@ TIM_HandleTypeDef  hRightEncoderTimer; // Right Motor Encoder Timer
 TIM_HandleTypeDef  hPwmTimer;          // Dc Motors PWM (Speed control)
 
 #if defined SEND_SONAR
-TIM_HandleTypeDef  hSonarEchoTimer;    // To Measure the Radar Echo Pulse Duration
-TIM_HandleTypeDef  hSonarPulseTimer;   // To Generate the Radar Trigger Pulse
+    TIM_HandleTypeDef  hSonarEchoTimer;    // To Measure the Radar Echo Pulse Duration
+    TIM_HandleTypeDef  hSonarPulseTimer;   // To Generate the Radar Trigger Pulse
 #endif
 
 #if defined(SEND_IMU)
-I2C_HandleTypeDef  hi2c2;
+    I2C_HandleTypeDef  hi2c2;
 #endif
 
 UART_HandleTypeDef huart2;
@@ -209,9 +207,9 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 static const double WHEEL_DIAMETER               = 0.067;  // [m]
 static const double TRACK_LENGTH                 = 0.209;    // Tire's Distance [m]
 #if defined (SLOW_MOTORS)
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*10*4; // Slow Motors !!!
+    static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*10*4; // Slow Motors !!!
 #else
-static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
+    static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
 #endif
 
 
@@ -226,10 +224,10 @@ double periodicClockFrequency = 10.0e6;// 10MHz
 double pwmClockFrequency      = 3.0e4; // 30KHz (corresponding to ~120Hz PWM Period)
 
 #if defined SEND_SONAR
-double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
-double sonarPulseDelay        = 10.0e-6; // in seconds
-double sonarPulseWidth        = 10.0e-6; // in seconds
-double soundSpeed             = 340.0;   // in m/s
+    double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
+    double sonarPulseDelay        = 10.0e-6; // in seconds
+    double sonarPulseWidth        = 10.0e-6; // in seconds
+    double soundSpeed             = 340.0;   // in m/s
 #endif
 
 double encoderCountsPerMeter  = ENCODER_COUNTS_PER_TIRE_TURN/(M_PI*WHEEL_DIAMETER);
@@ -255,15 +253,16 @@ static const double RightI = 0.008;
 static const double RightD = 0.003;
 
 #if defined(SEND_IMU)
-ADXL345  Acc;      // 400KHz I2C Capable. Maximum Output Data Rate is 800 Hz
-ITG3200  Gyro;     // 400KHz I2C Capable
-HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
-Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
+    ADXL345  Acc;      // 400KHz I2C Capable. Maximum Output Data Rate is 800 Hz
+    ITG3200  Gyro;     // 400KHz I2C Capable
+    HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
+    Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
 
-static float AccelValues[3];
-static float GyroValues[3];
-static float MagValues[3];
-float q0, q1, q2, q3;
+    static float AccelValues[3];
+    static float GyroValues[3];
+    static float MagValues[3];
+    float qw, qx, qy, qz;
+    float q0w, q0x, q0y, q0z;
 #endif
 
 static double odom_pose[3] = {0.0};
@@ -286,18 +285,18 @@ uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSampling
 
 
 #if defined(SEND_IMU)
-bool isAHRSpresent          = false;
+    bool isAHRSpresent          = false;
 #endif
 
 bool isTimeToUpdateSonar    = false;
 bool isTimeToUpdateOdometry = false;
 
 #if defined SEND_SONAR
-/// Captured Values for Echo Width Calculation
-volatile uint32_t uwIC2Value1    = 0;
-volatile uint32_t uwIC2Value2    = 0;
-volatile uint32_t uwDiffCapture  = 0;
-volatile uint16_t uhCaptureIndex = 0;
+    /// Captured Values for Echo Width Calculation
+    volatile uint32_t uwIC2Value1    = 0;
+    volatile uint32_t uwIC2Value2    = 0;
+    volatile uint32_t uwDiffCapture  = 0;
+    volatile uint16_t uhCaptureIndex = 0;
 #endif
 
 double leftTargetSpeed  = 0.0;
@@ -316,14 +315,27 @@ ros::Publisher odom_pub("odom", &odom);
 
 
 #if defined(SEND_IMU)
-sensor_msgs::Imu imuData;
-geometry_msgs::Vector3 compass_value;
-ros::Publisher imu_pub("imu_data", &imuData);
+    sensor_msgs::Imu imuData; // This is a message to hold data from an IMU
+    //                           (Inertial Measurement Unit)
+    //                           Accelerations must be in m/s^2 (not in g's),
+    //                           and rotational velocity must be in rad/sec
+    //                           If the covariance of the measurement is known,
+    //                           it should be filled in (if all you know is the
+    //                           variance of each measurement, e.g. from the datasheet,
+    //                           just put those along the diagonal)
+    //                           A covariance matrix of all zeros will be interpreted
+    //                           as "covariance unknown", and to use the data a covariance
+    //                           will have to be assumed or gotten from some other source.
+    //                           If you have no estimate for one of the data elements
+    //                           (e.g. your IMU doesn't produce an orientation estimate),
+    //                           please set element 0 of the associated covariance matrix to -1
+    geometry_msgs::Vector3 compass_value;
+    ros::Publisher imu_pub("imu_data", &imuData);
 #endif
 
 #if defined SEND_SONAR
-sensor_msgs::Range obstacleDistance;
-ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
+    sensor_msgs::Range obstacleDistance;
+    ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
 #endif
 
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
@@ -352,6 +364,11 @@ Setup() {
 
     // Enable the Periodic Samplig Timer Interrupt
     HAL_NVIC_SetPriority(SAMPLING_IRQ, 0, 0);
+
+    // Wait until Serial Node is Up and Ready
+    while(!nh.connected())
+        nh.spinOnce();
+
     HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     // Start the Periodic Sampling of:
 #if defined(SEND_IMU)
@@ -362,9 +379,6 @@ Setup() {
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-    // Wait until Serial Node is Up and Ready
-    while(!nh.connected())
-        nh.spinOnce();
     HAL_Delay(300);
     nh.loginfo("Buggy Ready...");
     last_cmd_vel_time = nh.now();
@@ -432,15 +446,14 @@ Loop() {
 //=========================
 bool
 updateOdometry() {
-    ros::Time current_time = nh.now();
-
-    /// Wheels Path Length in the Sampling Interval
+    /// Wheel's Path Length in the Sampling Interval
     double wheel_l = pLeftControlledMotor->spaceTraveled();
     double wheel_r = pRightControlledMotor->spaceTraveled();
+    odom.header.stamp = nh.now();
     /// Robot's Axis Rotation in the Sampling Interval
-    double delta_theta = (wheel_r - wheel_l) / TRACK_LENGTH;
-    /// Compute Updated Odometric Pose
-    double delta_s = 0.5 * (wheel_r + wheel_l);
+    double delta_theta = (wheel_r-wheel_l)/TRACK_LENGTH;
+    /// Compute Updated Odometric Pose (approximated via Runge Kutta 2nd Order Integration)
+    double delta_s = 0.5*(wheel_r+wheel_l);
     odom_pose[0] += delta_s * cos(odom_pose[2]+(0.5*delta_theta));
     odom_pose[1] += delta_s * sin(odom_pose[2]+(0.5*delta_theta));
     odom_pose[2] += delta_theta;
@@ -455,7 +468,6 @@ updateOdometry() {
     ///    odom.twist.twist.linear.y  = wheel_l;
     ///    odom.twist.twist.linear.z  = wheel_r;
     odom.twist.twist.angular.z = delta_theta * odometryUpdateFrequency; // w
-    odom.header.stamp = current_time;
 
     return true;
 }
@@ -548,7 +560,9 @@ AHRS_Init() {
     for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
         Madgwick.update(GyroValues, AccelValues, MagValues);
     }
-    odom_pose[2] = Madgwick.getYaw();
+    Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
+    q0w = -q0w;
+    odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
     return true;
 }
 #endif
@@ -556,6 +570,7 @@ AHRS_Init() {
 
 void
 Init_ROS() {
+    // TODO: Assign more realistic values for each quantity
     double pcov[36] = { 0.1, 0.0, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.1, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.0, 1.0e6, 0.0,   0.0,   0.0, // Z axis not valid
@@ -666,19 +681,21 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 Magn.ReadScaledAxis(MagValues);
                 Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
                 imuData.header.stamp = nh.now();
-                Madgwick.getRotation(&q0, &q1, &q2, &q3);
-                // Convert accel g to m/sec^2
-                imuData.linear_acceleration.x = AccelValues[0]*9.81;
-                imuData.linear_acceleration.y = AccelValues[1]*9.81;
-                imuData.linear_acceleration.z = AccelValues[2]*9.81;
-                // Convert gyroscope degrees/sec to radians/sec
-                imuData.angular_velocity.x = DEG2RAD(GyroValues[0]);
-                imuData.angular_velocity.y = DEG2RAD(GyroValues[1]);
-                imuData.angular_velocity.z = DEG2RAD(GyroValues[2]);
-                imuData.orientation.w = q0;
-                imuData.orientation.x = q1;
-                imuData.orientation.y = q2;
-                imuData.orientation.z = q3;
+                Madgwick.getRotation(&qw, &qx, &qy, &qz);
+                /// Convert from NED (North, East, Down) Coourdinate Frame
+                /// to ENU (East, North, Up) as specified by REP-103
+                // Convert accel from g to m/sec^2
+                imuData.linear_acceleration.x = AccelValues[1]* 9.80665 ;
+                imuData.linear_acceleration.y = AccelValues[0]* 9.80665 ;
+                imuData.linear_acceleration.z =-AccelValues[2]* 9.80665 ;
+                // Convert gyroscope from degrees/sec to radians/sec
+                imuData.angular_velocity.x = DEG2RAD(GyroValues[1]);
+                imuData.angular_velocity.y = DEG2RAD(GyroValues[0]);
+                imuData.angular_velocity.z =-DEG2RAD(GyroValues[2]);
+                imuData.orientation.w = qw;
+                imuData.orientation.x = qy;
+                imuData.orientation.y = qx;
+                imuData.orientation.z =-qz;
                 //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
         }
@@ -730,6 +747,7 @@ HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
     }
 }
 #endif
+
 
 // To handle the EXTI line[15:10] interrupts.
 void
