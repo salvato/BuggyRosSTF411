@@ -219,9 +219,9 @@ static const double TRACK_LENGTH                 = 0.209;    // Tire's Distance 
 ///===================
 /// Shared variables
 ///===================
-/// Require changing the value in:
-/// /opt/ros/noetic/lib/rosserial_python/serial_node.py
-unsigned int baudRate = 921600; // We can try greater speeds...
+
+unsigned int baudRate = 921600; /// We can try greater speeds...Require changing the value in:
+///                                 /opt/ros/noetic/lib/rosserial_python/serial_node.py
 
 double periodicClockFrequency = 10.0e6;// 10MHz
 double pwmClockFrequency      = 3.0e4; // 30KHz (corresponding to ~120Hz PWM Period)
