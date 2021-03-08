@@ -105,6 +105,7 @@
 
 //#define SEND_SONAR
 #define SEND_IMU
+#define NO_MAG
 
 #include "main.h"
 #include "tim.h"
@@ -117,8 +118,10 @@
 #include "controlledmotor.h"
 #include "ADXL345.h"
 #include "ITG3200.h"
-#include "HMC5883L.h"
-#include "MadgwickAHRS.h"
+#if !defined(NO_MAG)
+    #include "HMC5883L.h"
+    #include "MadgwickAHRS.h"
+#endif
 #include "string.h" // for memset()
 #ifdef  USE_FULL_ASSERT
     #include "stdio.h"
@@ -255,14 +258,15 @@ static const double RightD = 0.003;
 #if defined(SEND_IMU)
     ADXL345  Acc;      // 400KHz I2C Capable. Maximum Output Data Rate is 800 Hz
     ITG3200  Gyro;     // 400KHz I2C Capable
-    HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
-    Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
-
+    #if !defined(NO_MAG)
+        HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
+        Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
+        static float MagValues[3];
+        float qw, qx, qy, qz;
+        float q0w, q0x, q0y, q0z;
+    #endif
     static float AccelValues[3];
     static float GyroValues[3];
-    static float MagValues[3];
-    float qw, qx, qy, qz;
-    float q0w, q0x, q0y, q0z;
 #endif
 
 static double odom_pose[3] = {0.0};
@@ -537,32 +541,33 @@ AHRS_Init() {
     HAL_Delay(100);
      // Calibrate the ITG3200 (Assuming a STATIC SENSOR !)
     Gyro.zeroCalibrate(1200);
+    #if !defined(NO_MAG)
+        if(!Magn.init(HMC5883L_Address, &hi2c2))
+            return false;
+        HAL_Delay(100);
+        if(Magn.SetScale(1300) != 0)
+            return false;
+        HAL_Delay(100);
+        if(Magn.SetMeasurementMode(Measurement_Continuous) != 0)
+            return false;
 
-    if(!Magn.init(HMC5883L_Address, &hi2c2))
-        return false;
-    HAL_Delay(100);
-    if(Magn.SetScale(1300) != 0)
-        return false;
-    HAL_Delay(100);
-    if(Magn.SetMeasurementMode(Measurement_Continuous) != 0)
-        return false;
+        Madgwick.begin(float(AHRSSamplingFrequency));
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(AccelValues);
+        while(!Gyro.isRawDataReadyOn()) {}
+        Gyro.readGyro(GyroValues);
+        while(!Magn.isDataReady()) {}
+        Magn.ReadScaledAxis(MagValues);
 
-    Madgwick.begin(float(AHRSSamplingFrequency));
-    while(!Acc.getInterruptSource(7)) {}
-    Acc.get_Gxyz(AccelValues);
-    while(!Gyro.isRawDataReadyOn()) {}
-    Gyro.readGyro(GyroValues);
-    while(!Magn.isDataReady()) {}
-    Magn.ReadScaledAxis(MagValues);
-
-    // Since we start with an arbitrary orientation we have to converge to
-    // the initial estimate of the attitude (assuming a static sensor !)
-    for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
-        Madgwick.update(GyroValues, AccelValues, MagValues);
-    }
-    Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
-    q0w = -q0w;
-    odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
+        // Since we start with an arbitrary orientation we have to converge to
+        // the initial estimate of the attitude (assuming a static sensor !)
+        for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
+            Madgwick.update(GyroValues, AccelValues, MagValues);
+        }
+        Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
+        q0w = -q0w;
+        odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
+    #endif
     return true;
 }
 #endif
@@ -595,6 +600,7 @@ Init_ROS() {
     imuData.header.frame_id = {"imu_link"};
     memcpy(&(imuData.linear_acceleration_covariance), imucov, sizeof(double)*9);
     memcpy(&(imuData.angular_velocity_covariance),    imucov, sizeof(double)*9);
+    imucov[0] = -1.0;
     memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
 
     nh.initNode();
@@ -678,13 +684,18 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             if(isAHRSpresent) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
-                Magn.ReadScaledAxis(MagValues);
-                Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
-                imuData.header.stamp = nh.now();
-                Madgwick.getRotation(&qw, &qx, &qy, &qz);
-                /// Convert from NED (North, East, Down) Coourdinate Frame
-                /// to ENU (East, North, Up) as specified by REP-103
-                // Convert accel from g to m/sec^2
+                #if !defined(NO_MAG)
+                    Magn.ReadScaledAxis(MagValues);
+                    Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
+                    Madgwick.getRotation(&qw, &qx, &qy, &qz);
+                    /// Convert from NED (North, East, Down) Coourdinate Frame
+                    /// to ENU (East, North, Up) as specified by REP-103
+                    // Convert accel from g to m/sec^2
+                    imuData.orientation.w = qw;
+                    imuData.orientation.x = qy;
+                    imuData.orientation.y = qx;
+                    imuData.orientation.z =-qz;
+                #endif
                 imuData.linear_acceleration.x = AccelValues[1]* 9.80665 ;
                 imuData.linear_acceleration.y = AccelValues[0]* 9.80665 ;
                 imuData.linear_acceleration.z =-AccelValues[2]* 9.80665 ;
@@ -692,10 +703,7 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 imuData.angular_velocity.x = DEG2RAD(GyroValues[1]);
                 imuData.angular_velocity.y = DEG2RAD(GyroValues[0]);
                 imuData.angular_velocity.z =-DEG2RAD(GyroValues[2]);
-                imuData.orientation.w = qw;
-                imuData.orientation.x = qy;
-                imuData.orientation.y = qx;
-                imuData.orientation.z =-qz;
+                imuData.header.stamp = nh.now();
                 //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
         }
