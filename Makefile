@@ -75,6 +75,7 @@ Src/ADXL345.cpp \
 Src/HMC5883L.cpp \
 Src/ITG3200.cpp \
 Src/MadgwickAHRS.cpp \
+Src/mpu6050.cpp
 
 
 # ASM sources

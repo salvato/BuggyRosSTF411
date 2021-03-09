@@ -103,10 +103,6 @@
 //=============================================================================
 */
 
-//#define SEND_SONAR
-#define SEND_IMU
-#define NO_MAG
-
 #include "main.h"
 #include "tim.h"
 #include "i2c.h"
@@ -118,47 +114,44 @@
 #include "controlledmotor.h"
 #include "ADXL345.h"
 #include "ITG3200.h"
-#if !defined(NO_MAG)
-    #include "HMC5883L.h"
-    #include "MadgwickAHRS.h"
-#endif
+#include "mpu6050.h"
+#include "HMC5883L.h"
+#include "MadgwickAHRS.h"
 #include "string.h" // for memset()
-#ifdef  USE_FULL_ASSERT
-    #include "stdio.h"
-#endif
+#include "stdio.h"
 // ROS includes
 #include <ros.h>
 #include <tf/tf.h>
 #include <geometry_msgs/Twist.h>   // Received Speed Data
 #include <geometry_msgs/Vector3.h> // Received PID Values
 #include <nav_msgs/Odometry.h>     // Published Robot Odometry
-#if defined(SEND_IMU)
-    #include <sensor_msgs/Imu.h>       // Published IMU Data
-#endif
-#if defined SEND_SONAR
-    #include <sensor_msgs/Range.h>     // Published Sonar Data
-#endif
+#include <sensor_msgs/Imu.h>       // Published IMU Data
+#include <sensor_msgs/Range.h>     // Published Sonar Data
+
 
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
 #define DEG2RAD(x) (x)*M_PI/180.0
 
-#define MOTOR_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_2
-#define MOTOR_CHANNEL        TIM_CHANNEL_2
+//#define USE_SONAR
+#define SEND_IMU
+//#define USE_IMU_MPU6050
+#define USE_MAGNETOMETER
+
+#define MOTOR_UPDATE_CHANNEL    HAL_TIM_ACTIVE_CHANNEL_2
+#define MOTOR_CHANNEL           TIM_CHANNEL_2
 
 #define ODOMETRY_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_3
 #define ODOMETRY_CHANNEL        TIM_CHANNEL_3
 
-#if defined SEND_SONAR
-    #define SONAR_UPDATE_CHANNEL    ODOMETRY_UPDATE_CHANNEL
-    #define SONAR_CHANNEL           ODOMETRY_CHANNEL
-#endif
+#define SONAR_UPDATE_CHANNEL    ODOMETRY_UPDATE_CHANNEL
+#define SONAR_CHANNEL           ODOMETRY_CHANNEL
 
-#define IMU_UPDATE_CHANNEL HAL_TIM_ACTIVE_CHANNEL_4
-#define IMU_CHANNEL        TIM_CHANNEL_4
+#define IMU_UPDATE_CHANNEL      HAL_TIM_ACTIVE_CHANNEL_4
+#define IMU_CHANNEL             TIM_CHANNEL_4
 
-#define SAMPLING_IRQ TIM2_IRQn
+#define SAMPLING_IRQ            TIM2_IRQn
 
 
 ///==============================
@@ -167,9 +160,7 @@
 static void Setup();
 static void Loop();
 static void Init_Hardware();
-#if defined(SEND_IMU)
-    static bool IMU_Init();
-#endif
+static bool IMU_Init();
 static void Init_ROS();
 static bool updateOdometry();
 
@@ -189,15 +180,10 @@ TIM_HandleTypeDef  hSamplingTimer;     // Periodic Sampling Timer
 TIM_HandleTypeDef  hLeftEncoderTimer;  // Left Motor Encoder Timer
 TIM_HandleTypeDef  hRightEncoderTimer; // Right Motor Encoder Timer
 TIM_HandleTypeDef  hPwmTimer;          // Dc Motors PWM (Speed control)
+TIM_HandleTypeDef  hSonarEchoTimer;    // To Measure the Radar Echo Pulse Duration
+TIM_HandleTypeDef  hSonarPulseTimer;   // To Generate the Radar Trigger Pulse
 
-#if defined SEND_SONAR
-    TIM_HandleTypeDef  hSonarEchoTimer;    // To Measure the Radar Echo Pulse Duration
-    TIM_HandleTypeDef  hSonarPulseTimer;   // To Generate the Radar Trigger Pulse
-#endif
-
-#if defined(SEND_IMU)
-    I2C_HandleTypeDef  hi2c2;
-#endif
+I2C_HandleTypeDef  hi2c2;
 
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef  hdma_usart2_tx;
@@ -209,7 +195,7 @@ DMA_HandleTypeDef  hdma_usart2_rx;
 ///==================
 static const double WHEEL_DIAMETER               = 0.067;  // [m]
 static const double TRACK_LENGTH                 = 0.209;    // Tire's Distance [m]
-#if defined (SLOW_MOTORS)
+#if defined(SLOW_MOTORS)
     static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*10*4; // Slow Motors !!!
 #else
     static const int    ENCODER_COUNTS_PER_TIRE_TURN = 12*9*4; // = 432 ==>
@@ -226,12 +212,10 @@ unsigned int baudRate = 921600; /// We can try greater speeds...Require changing
 double periodicClockFrequency = 10.0e6;// 10MHz
 double pwmClockFrequency      = 3.0e4; // 30KHz (corresponding to ~120Hz PWM Period)
 
-#if defined SEND_SONAR
-    double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
-    double sonarPulseDelay        = 10.0e-6; // in seconds
-    double sonarPulseWidth        = 10.0e-6; // in seconds
-    double soundSpeed             = 340.0;   // in m/s
-#endif
+double sonarClockFrequency    = 10.0e6;  // 10MHz (100ns period)
+double sonarPulseDelay        = 10.0e-6; // in seconds
+double sonarPulseWidth        = 10.0e-6; // in seconds
+double soundSpeed             = 340.0;   // in m/s
 
 double encoderCountsPerMeter  = ENCODER_COUNTS_PER_TIRE_TURN/(M_PI*WHEEL_DIAMETER);
 
@@ -246,62 +230,53 @@ DcMotor*         pRightMotor           = nullptr;
 ControlledMotor* pLeftControlledMotor  = nullptr;
 ControlledMotor* pRightControlledMotor = nullptr;
 
-// Inital values for PIDs (externally estimated)
-static const double LeftP  = 0.101;
-static const double LeftI  = 0.008;
-static const double LeftD  = 0.003;
+/// Inital values for PIDs (externally estimated)
+const double LeftP  = 0.101;
+const double LeftI  = 0.008;
+const double LeftD  = 0.003;
+const double RightP = 0.101;
+const double RightI = 0.008;
+const double RightD = 0.003;
 
-static const double RightP = 0.101;
-static const double RightI = 0.008;
-static const double RightD = 0.003;
+MPU6050 mpu6050;
+MPU6050::MPU6050_t mpuData;
 
-#if defined(SEND_IMU)
-    ADXL345  Acc;      // 400KHz I2C Capable. Maximum Output Data Rate is 800 Hz
-    ITG3200  Gyro;     // 400KHz I2C Capable
-    #if !defined(NO_MAG)
-        HMC5883L Magn;     // 400KHz I2C Capable, left at the default 15Hz data Rate
-        static float MagValues[3];
-        Madgwick Madgwick; // ~13us per Madgwick.update() with NUCLEO-F411RE
-        float qw,  qx,  qy,  qz;
-        float q0w, q0x, q0y, q0z;
-    #endif
-    static float AccelValues[3];
-    static float GyroValues[3];
-#endif
-
-static double odom_pose[3] = {0.0};
+ADXL345  Acc;      /// 400KHz I2C Capable. Maximum Output Data Rate is 800 Hz
+ITG3200  Gyro;     /// 400KHz I2C Capable
+HMC5883L Magn;     /// 400KHz I2C Capable, left at the default 15Hz data Rate
+Madgwick Madgwick; /// ~13us per Madgwick.update() with NUCLEO-F411RE
+float qw,  qx,  qy,  qz;
+float q0w, q0x, q0y, q0z;
+float MagValues[3]   = {0.0};
+float AccelValues[3] = {0.0};
+float GyroValues[3]  = {0.0};
+double odom_pose[3]  = {0.0};
 
 
 ///===================
 /// Update Intervals
 ///===================
-uint32_t IMUSamplingFrequency   = 400; // [Hz]
-uint32_t IMUSamplingPulses      = uint32_t(periodicClockFrequency/IMUSamplingFrequency +0.5); // [Hz]
-
+uint32_t IMUSamplingFrequency    = 400; // [Hz]
+uint32_t IMUSamplingPulses       = uint32_t(periodicClockFrequency/IMUSamplingFrequency +0.5); // [Hz]
 uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
-
-uint32_t odometryUpdateFrequency = 30;  // [Hz]
+uint32_t odometryUpdateFrequency = 3*30;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
-
 uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
 uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
 
 
-#if defined(SEND_IMU)
-    bool isIMUpresent          = false;
-#endif
+bool isIMUpresent     = false;
+bool isMPU6050present = false;
 
 bool isTimeToUpdateSonar    = false;
 bool isTimeToUpdateOdometry = false;
 
-#if defined SEND_SONAR
-    /// Captured Values for Echo Width Calculation
-    volatile uint32_t uwIC2Value1    = 0;
-    volatile uint32_t uwIC2Value2    = 0;
-    volatile uint32_t uwDiffCapture  = 0;
-    volatile uint16_t uhCaptureIndex = 0;
-#endif
+/// Captured Values for Sonar Echo Width Calculation
+volatile uint32_t uwIC2Value1    = 0;
+volatile uint32_t uwIC2Value2    = 0;
+volatile uint32_t uwDiffCapture  = 0;
+volatile uint16_t uhCaptureIndex = 0;
 
 double leftTargetSpeed  = 0.0;
 double rightTargetSpeed = 0.0;
@@ -316,7 +291,6 @@ ros::Time last_cmd_vel_time;
 
 nav_msgs::Odometry odom;
 ros::Publisher odom_pub("odom", &odom);
-
 
 #if defined(SEND_IMU)
     sensor_msgs::Imu imuData; // This is a message to hold data from an IMU
@@ -335,9 +309,11 @@ ros::Publisher odom_pub("odom", &odom);
     //                           please set element 0 of the associated covariance matrix to -1
     geometry_msgs::Vector3 compass_value;
     ros::Publisher imu_pub("imu_data", &imuData);
+    # if defined(USE_IMU_MPU6050)
+    #endif
 #endif
 
-#if defined SEND_SONAR
+#if defined(USE_SONAR)
     sensor_msgs::Range obstacleDistance;
     ros::Publisher obstacleDistance_pub("buggyDistance", &obstacleDistance);
 #endif
@@ -398,7 +374,7 @@ int nn=1;
 static void
 Loop() {
     if(nh.connected()) {
-#if defined(SEND_SONAR)
+#if defined(USE_SONAR)
         if(isTimeToUpdateSonar) {
             isTimeToUpdateSonar = false;
             HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
@@ -412,19 +388,30 @@ Loop() {
 #endif
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
-            nn = 1-nn;
-            if(nn==0) {
+            nn += 1;
+            if(nn == 1) {
                 updateOdometry();
                 odom_pub.publish(&odom);
             }
+            else if(nn == 2) {
+                if(isIMUpresent)
+                    imu_pub.publish(&imuData); // Many Data to Send (Covariance...
+            }
             else {
-#if defined(SEND_IMU)
-                imu_pub.publish(&imuData); // Too Many Data to Send (Covariance...
-#endif
+                nn = 0;
+                if(isMPU6050present) {
+                    imuData.linear_acceleration.x = mpuData.Ax;
+                    imuData.linear_acceleration.y = mpuData.Ay;
+                    imuData.linear_acceleration.z = mpuData.Az;
+                    imuData.angular_velocity.x    = mpuData.Gx;
+                    imuData.angular_velocity.y    = mpuData.Gy;
+                    imuData.angular_velocity.z    = mpuData.Gz;
+                    //TODO Prepare MPU6050 Data to send
+                }
             }
             HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
-        // If No New Speed Data have been Received in Right Time
+        // If No New Speed Data have been Received in the Right Time
         // Halt the Robot to avoid possible damages
         if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
             leftTargetSpeed  = 0.0; // in m/s
@@ -514,12 +501,12 @@ Init_Hardware() {
     pRightControlledMotor->setPID(RightP, RightI, RightD);
 
 #if defined(SEND_IMU)
-    // Initialize 10DOF Sensor
     I2C2_Init();
-    isIMUpresent = IMU_Init();
+    isIMUpresent     = IMU_Init();// Initialize 10DOF Sensor
+    isMPU6050present = mpu6050.Init(&hi2c2);
 #endif
 
-#if defined SEND_SONAR
+#if defined (USE_SONAR)
     // Initialize Sonar
     SonarEchoTimerInit();
     SonarPulseTimerInit();
@@ -530,18 +517,16 @@ Init_Hardware() {
 }
 
 
-#if defined(SEND_IMU)
 bool
 IMU_Init() {
     if(!Acc.init(ADXL345_ADDR_ALT_LOW, &hi2c2))
         return false;
-
     if(!Gyro.init(ITG3200_ADDR_AD0_LOW, &hi2c2))
         return false;
     HAL_Delay(100);
      // Calibrate the ITG3200 (Assuming a STATIC SENSOR !)
     Gyro.zeroCalibrate(1200);
-    #if !defined(NO_MAG)
+    #if defined(USE_MAGNETOMETER)
         if(!Magn.init(HMC5883L_Address, &hi2c2))
             return false;
         HAL_Delay(100);
@@ -566,11 +551,9 @@ IMU_Init() {
         }
         Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
         q0w = -q0w;
-        // >>>>>>>>>>>>>> odom_pose[2] = M_PI-DEG2RAD(Madgwick.getYaw());
     #endif
     return true;
 }
-#endif
 
 
 void
@@ -600,7 +583,7 @@ Init_ROS() {
     imuData.header.frame_id = {"imu_link"};
     memcpy(&(imuData.linear_acceleration_covariance), imucov, sizeof(double)*9);
     memcpy(&(imuData.angular_velocity_covariance),    imucov, sizeof(double)*9);
-    #if !defined(NO_MAG)
+    #if !defined(USE_MAGNETOMETER)
         imucov[0] = -1.0;
     #endif
     memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
@@ -617,7 +600,7 @@ Init_ROS() {
     if(!nh.advertise(imu_pub))
         Error_Handler();
 #endif
-#if defined SEND_SONAR
+#if defined (USE_SONAR)
     if(!nh.advertise(obstacleDistance_pub))
         Error_Handler();
 #endif
@@ -687,10 +670,13 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
 #if defined(SEND_IMU)
         else if(htim->Channel == IMU_UPDATE_CHANNEL) { // Time to Update IMU Data ? (400Hz)
             htim->Instance->CCR4 += IMUSamplingPulses;
+    #if defined(USE_IMU_MPU6050)
+            mpu6050.Read_All(&hi2c2, &mpuData);
+    #endif
             if(isIMUpresent) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
-                #if !defined(NO_MAG)
+                #if defined(USE_MAGNETOMETER)
                     Magn.ReadScaledAxis(MagValues);
                     Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
                     Madgwick.getRotation(&qw, &qx, &qy, &qz);
@@ -716,7 +702,7 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
 #endif
         else if(htim->Channel == ODOMETRY_UPDATE_CHANNEL) { // Time to Update Odometry
             htim->Instance->CCR3 += odometrySamplingPulses;
-#if defined SEND_SONAR
+#if defined(USE_SONAR)
             uhCaptureIndex = 0;
             LL_TIM_IC_SetPolarity(TIM5, LL_TIM_CHANNEL_CH2, LL_TIM_IC_POLARITY_RISING);
             LL_TIM_EnableCounter(hSonarPulseTimer.Instance);
@@ -727,7 +713,7 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
 }
 
 
-#if defined SEND_SONAR
+#if defined(USE_SONAR)
 // To handle the TIM5 (Sonar Echo) interrupt.
 // Will call HAL_TIM_IC_CaptureCallback(&hSonarEchoTimer)
 void
