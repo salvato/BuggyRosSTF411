@@ -604,6 +604,10 @@ Init_ROS() {
         imucov[0] = -1.0;
     #endif
     memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
+    imuData.orientation.w = 1.0;
+    imuData.orientation.x = 0.0;
+    imuData.orientation.y = 0.0;
+    imuData.orientation.z = 0.0;
 
     nh.initNode();
 
