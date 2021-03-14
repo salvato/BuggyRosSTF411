@@ -34,7 +34,12 @@ ADXL345::ADXL345() {
     error_code  = ADXL345_NO_ERROR;
     pHi2c       = nullptr;
     dev_address = ADXL345_ADDR_ALT_LOW << 1;
-
+    gains[0] = 0.0039; // 3.9mg/LSB (see datasheet)
+    gains[1] = 0.0039; // 3.9mg/LSB (see datasheet)
+    gains[2] = 0.0039; // 3.9mg/LSB (see datasheet)
+    offsets[0] = 0.0;
+    offsets[1] = 0.0;
+    offsets[2] = 0.0;
 }
 
 
@@ -58,37 +63,7 @@ ADXL345::init(int16_t _address, I2C_HandleTypeDef *_pHi2c) {
     getRangeSetting(&buf);
     if(buf !=2)
         return false;
-    calibrate();
     return true;
-}
-
-
-void
-ADXL345::calibrate() {
-    offsets[0] = 0.0;
-    offsets[1] = 0.0;
-    offsets[2] = 0.0;
-
-    int16_t g[3];
-    getAxisOffset(&g[0], &g[1], &g[2]);
-
-    for(int i=0; i<31; i++) {
-        readAccel(g);
-        for(int j=0; j<3; j++)
-            offsets[j] += g[j];
-    }
-    for(int j=0; j<3; j++)
-        offsets[j] /= 31.0;
-
-    double gm = sqrt(offsets[0]*offsets[0] +
-                     offsets[1]*offsets[1] +
-                     offsets[2]*offsets[2]);
-    gm = 1.0 / gm;
-
-    for(int j=0; j<3; j++) {
-        gains[j] = gm;
-        offsets[j] *= gains[j];
-    }
 }
 
 
@@ -104,13 +79,6 @@ ADXL345::powerOn() {
 }
 
 
-// Reads the acceleration into an array of three places
-void
-ADXL345::readAccel(int16_t *xyz){
-    readAccel(xyz, xyz+1, xyz+2);
-}
-
-
 // Reads the acceleration into three variable x, y and z
 void
 ADXL345::readAccel(int16_t *x, int16_t *y, int16_t *z) {
@@ -122,6 +90,13 @@ ADXL345::readAccel(int16_t *x, int16_t *y, int16_t *z) {
     *x = int16_t((uint16_t(buff[1])) << 8) | buff[0];
     *y = int16_t((uint16_t(buff[3])) << 8) | buff[2];
     *z = int16_t((uint16_t(buff[5])) << 8) | buff[4];
+}
+
+
+// Reads the acceleration into an array of three places
+void
+ADXL345::readAccel(int16_t *xyz){
+    readAccel(xyz, xyz+1, xyz+2);
 }
 
 

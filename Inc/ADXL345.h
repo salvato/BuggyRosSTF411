@@ -112,7 +112,6 @@ public:
 
     ADXL345();
     bool init(int16_t _address, I2C_HandleTypeDef* pHi2c);
-    void calibrate();
     bool powerOn();
     void readAccel(int16_t *xyx);
     void readAccel(int16_t *x, int16_t *y, int16_t *z);

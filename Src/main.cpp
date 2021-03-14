@@ -587,10 +587,10 @@ Init_ROS() {
         imucov[0] = -1.0;
     #endif
     memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
-    imuData.orientation.w = 1.0;
     imuData.orientation.x = 0.0;
     imuData.orientation.y = 0.0;
     imuData.orientation.z = 0.0;
+    imuData.orientation.w = 1.0;
 
     nh.initNode();
 
@@ -670,24 +670,42 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
 #if defined(SEND_IMU)
         else if(htim->Channel == IMU_UPDATE_CHANNEL) { // Time to Update IMU Data ? (400Hz)
             htim->Instance->CCR4 += IMUSamplingPulses;
-    #if defined(USE_IMU_MPU6050)
-            mpu6050.Read_All(&hi2c2, &mpuData);
-    #endif
+            if(isMPU6050present)
+                mpu6050.Read_All(&hi2c2, &mpuData);
             if(isIMUpresent) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
                 #if defined(USE_MAGNETOMETER)
+                     Magn.ReadScaledAxis(MagValues);
+                     Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
+                     Madgwick.getRotation(&qw, &qx, &qy, &qz);
+                     imuData.orientation.w = qw;
+                     imuData.orientation.x = qy;
+                     imuData.orientation.y = qx;
+                     imuData.orientation.z = qz;
+                #endif
+                // Convert accel from g to m/sec^2
+                imuData.linear_acceleration.x = AccelValues[0]* 9.80665 ;
+                imuData.linear_acceleration.y = AccelValues[1]* 9.80665 ;
+                imuData.linear_acceleration.z = AccelValues[2]* 9.80665 ;
+                // Convert gyroscope from degrees/sec to radians/sec
+                imuData.angular_velocity.x = DEG2RAD(GyroValues[0]);
+                imuData.angular_velocity.y = DEG2RAD(GyroValues[1]);
+                imuData.angular_velocity.z = DEG2RAD(GyroValues[2]);
+                imuData.header.stamp = nh.now();
+/*
+               #if defined(USE_MAGNETOMETER)
                     Magn.ReadScaledAxis(MagValues);
                     Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
                     Madgwick.getRotation(&qw, &qx, &qy, &qz);
                     /// Convert from NED (North, East, Down) Coourdinate Frame
                     /// to ENU (East, North, Up) as specified by REP-103
-                    // Convert accel from g to m/sec^2
                     imuData.orientation.w = qw;
                     imuData.orientation.x = qy;
                     imuData.orientation.y = qx;
                     imuData.orientation.z =-qz;
                 #endif
+                // Convert accel from g to m/sec^2
                 imuData.linear_acceleration.x = AccelValues[1]* 9.80665 ;
                 imuData.linear_acceleration.y = AccelValues[0]* 9.80665 ;
                 imuData.linear_acceleration.z =-AccelValues[2]* 9.80665 ;
@@ -696,6 +714,7 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 imuData.angular_velocity.y = DEG2RAD(GyroValues[0]);
                 imuData.angular_velocity.z =-DEG2RAD(GyroValues[2]);
                 imuData.header.stamp = nh.now();
+*/
                 //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
         }
