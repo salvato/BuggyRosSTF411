@@ -127,6 +127,7 @@
 #include <nav_msgs/Odometry.h>     // Published Robot Odometry
 #include <sensor_msgs/Imu.h>       // Published IMU Data
 #include <sensor_msgs/Range.h>     // Published Sonar Data
+#include <sensor_msgs/MagneticField.h> // Published Compass Data
 
 
 #ifndef M_PI
@@ -135,9 +136,7 @@
 #define DEG2RAD(x) (x)*M_PI/180.0
 
 //#define USE_SONAR
-#define SEND_IMU
 //#define USE_IMU_MPU6050
-#define USE_MAGNETOMETER
 
 #define MOTOR_UPDATE_CHANNEL    HAL_TIM_ACTIVE_CHANNEL_2
 #define MOTOR_CHANNEL           TIM_CHANNEL_2
@@ -246,7 +245,6 @@ ITG3200  Gyro;     /// 400KHz I2C Capable
 HMC5883L Magn;     /// 400KHz I2C Capable, left at the default 15Hz data Rate
 Madgwick Madgwick; /// ~13us per Madgwick.update() with NUCLEO-F411RE
 float qw,  qx,  qy,  qz;
-float q0w, q0x, q0y, q0z;
 float MagValues[3]   = {0.0};
 float AccelValues[3] = {0.0};
 float GyroValues[3]  = {0.0};
@@ -260,7 +258,7 @@ uint32_t IMUSamplingFrequency    = 400; // [Hz]
 uint32_t IMUSamplingPulses       = uint32_t(periodicClockFrequency/IMUSamplingFrequency +0.5); // [Hz]
 uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
-uint32_t odometryUpdateFrequency = 3*30;  // [Hz]
+uint32_t odometryUpdateFrequency = 4*30;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
 uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
@@ -292,25 +290,13 @@ ros::Time last_cmd_vel_time;
 nav_msgs::Odometry odom;
 ros::Publisher odom_pub("odom", &odom);
 
-#if defined(SEND_IMU)
-    sensor_msgs::Imu imuData; // This is a message to hold data from an IMU
-    //                           (Inertial Measurement Unit)
-    //                           Accelerations must be in m/s^2 (not in g's),
-    //                           and rotational velocity must be in rad/sec
-    //                           If the covariance of the measurement is known,
-    //                           it should be filled in (if all you know is the
-    //                           variance of each measurement, e.g. from the datasheet,
-    //                           just put those along the diagonal)
-    //                           A covariance matrix of all zeros will be interpreted
-    //                           as "covariance unknown", and to use the data a covariance
-    //                           will have to be assumed or gotten from some other source.
-    //                           If you have no estimate for one of the data elements
-    //                           (e.g. your IMU doesn't produce an orientation estimate),
-    //                           please set element 0 of the associated covariance matrix to -1
-    geometry_msgs::Vector3 compass_value;
-    ros::Publisher imu_pub("imu_data", &imuData);
-    # if defined(USE_IMU_MPU6050)
-    #endif
+sensor_msgs::Imu imuData;
+sensor_msgs::MagneticField compassData;
+ros::Publisher imu_pub("imu_data", &imuData);
+ros::Publisher mag_pub("mag_data", &compassData);
+
+# if defined(USE_IMU_MPU6050)
+    TODO:
 #endif
 
 #if defined(USE_SONAR)
@@ -351,9 +337,8 @@ Setup() {
 
     HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     // Start the Periodic Sampling of:
-#if defined(SEND_IMU)
+
     HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);     // IMU
-#endif
     HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
     HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
     // Enable and set Button EXTI Interrupt
@@ -394,8 +379,15 @@ Loop() {
                 odom_pub.publish(&odom);
             }
             else if(nn == 2) {
-                if(isIMUpresent)
-                    imu_pub.publish(&imuData); // Many Data to Send (Covariance...
+                if(isIMUpresent) {
+                    imu_pub.publish(&imuData);
+                }
+            }
+            else if(nn == 3) {
+                if(isIMUpresent) {
+                    mag_pub.publish(&compassData);
+                }
+                HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
             else {
                 nn = 0;
@@ -409,7 +401,6 @@ Loop() {
                     //TODO Prepare MPU6050 Data to send
                 }
             }
-            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
         // If No New Speed Data have been Received in the Right Time
         // Halt the Robot to avoid possible damages
@@ -500,11 +491,9 @@ Init_Hardware() {
     pLeftControlledMotor->setPID(LeftP, LeftI, LeftD);
     pRightControlledMotor->setPID(RightP, RightI, RightD);
 
-#if defined(SEND_IMU)
     I2C2_Init();
     isIMUpresent     = IMU_Init();// Initialize 10DOF Sensor
     isMPU6050present = mpu6050.Init(&hi2c2);
-#endif
 
 #if defined (USE_SONAR)
     // Initialize Sonar
@@ -517,47 +506,78 @@ Init_Hardware() {
 }
 
 
+void
+getVariance(float* data, double* var, int nData) {
+    double avg[3] = {0.0};
+    int j;
+    for(int i=0; i<nData; i++) {
+        j = 3*i;
+        avg[0] += data[j];
+        avg[1] += data[j+1];
+        avg[2] += data[j+2];
+    }
+    avg[0] /= double(nData);
+    avg[1] /= double(nData);
+    avg[2] /= double(nData);
+    var[0] = var[1] = var[2] = 0.0;
+    for(int i=0; i<nData; i++) {
+        j = 3*i;
+        var[0] += (data[j]  -avg[0])*(data[j]  -avg[0]);
+        var[1] += (data[j+1]-avg[1])*(data[j+1]-avg[1]);
+        var[2] += (data[j+2]-avg[2])*(data[j+2]-avg[2]);
+    }
+    var[0] /= double(nData);
+    var[1] /= double(nData);
+    var[2] /= double(nData);
+}
+
+
 bool
 IMU_Init() {
     if(!Acc.init(ADXL345_ADDR_ALT_LOW, &hi2c2))
         return false;
+
     if(!Gyro.init(ITG3200_ADDR_AD0_LOW, &hi2c2))
         return false;
     HAL_Delay(100);
      // Calibrate the ITG3200 (Assuming a STATIC SENSOR !)
     Gyro.zeroCalibrate(1200);
-    #if defined(USE_MAGNETOMETER)
-        if(!Magn.init(HMC5883L_Address, &hi2c2))
-            return false;
-        HAL_Delay(100);
-        if(Magn.SetScale(1300) != 0)
-            return false;
-        HAL_Delay(100);
-        if(Magn.SetMeasurementMode(Measurement_Continuous) != 0)
-            return false;
 
-        Madgwick.begin(float(IMUSamplingFrequency));
-        while(!Acc.getInterruptSource(7)) {}
-        Acc.get_Gxyz(AccelValues);
-        while(!Gyro.isRawDataReadyOn()) {}
-        Gyro.readGyro(GyroValues);
-        while(!Magn.isDataReady()) {}
-        Magn.ReadScaledAxis(MagValues);
+    if(!Magn.init(HMC5883L_Address, &hi2c2))
+        return false;
+    HAL_Delay(100);
+    if(Magn.SetScale(1300) != 0)
+        return false;
+    HAL_Delay(100);
+    if(Magn.SetMeasurementMode(Measurement_Continuous) != 0)
+        return false;
 
-        // Since we start with an arbitrary orientation we have to converge to
-        // the initial estimate of the attitude (assuming a static sensor !)
-        for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
-            Madgwick.update(GyroValues, AccelValues, MagValues);
-        }
-        Madgwick.getRotation(&q0w, &q0x, &q0y, &q0z);
-        q0w = -q0w;
-    #endif
+    Madgwick.begin(float(IMUSamplingFrequency));
+    /// Since we Assume that the Buggy is stationary...
+    GyroValues[0] = GyroValues[1] = GyroValues[2] = 0.0;
+    //while(!Gyro.isRawDataReadyOn()) {}
+    //Gyro.readGyro(GyroValues);
+    while(!Acc.getInterruptSource(7)) {}
+    Acc.get_Gxyz(AccelValues);
+    while(!Magn.isDataReady()) {}
+    Magn.ReadScaledAxis(MagValues);
+
+    /// Since we start in an arbitrary orientation we have to converge to
+    /// the initial estimate of the attitude (Assuming a Static Sensor !)
+    for(int i=0; i<20000; i++) { // ~13us per Madgwick.update() with NUCLEO-F411RE
+        Madgwick.update(GyroValues, AccelValues, MagValues);
+    }
+
     return true;
 }
 
 
 void
 Init_ROS() {
+    int nData = 1000;
+    float data[3*1000] = {0.0};
+    double variance[3];
+    int j;
     // TODO: Assign more realistic values for each quantity
     double pcov[36] = { 0.1, 0.0, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.1, 0.0,   0.0,   0.0,   0.0,
@@ -565,11 +585,6 @@ Init_ROS() {
                         0.0, 0.0, 0.0,   1.0e6, 0.0,   0.0, // Pitch and ...
                         0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
                         0.0, 0.0, 0.0,   0.0,   0.0,   0.02};
-
-    // TODO: Assign more realistic values for each quantity
-    double imucov[9] = { 0.1, 0.0, 0.0,
-                         0.0, 0.1, 0.0,
-                         0.0, 0.0, 0.1 };
 
     // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
@@ -581,25 +596,64 @@ Init_ROS() {
     odom.child_frame_id = {"base_link"};
 
     imuData.header.frame_id = {"imu_link"};
-    memcpy(&(imuData.linear_acceleration_covariance), imucov, sizeof(double)*9);
-    memcpy(&(imuData.angular_velocity_covariance),    imucov, sizeof(double)*9);
-    #if !defined(USE_MAGNETOMETER)
-        imucov[0] = -1.0;
-    #endif
-    memcpy(&(imuData.orientation_covariance),         imucov, sizeof(double)*9);
-    imuData.orientation.x = 0.0;
-    imuData.orientation.y = 0.0;
-    imuData.orientation.z = 0.0;
-    imuData.orientation.w = 1.0;
+
+    for(int i=0; i<nData; i++) {
+        j = 3 * i;
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(&data[j]);
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.linear_acceleration_covariance,
+           0,
+           sizeof(imuData.linear_acceleration_covariance));
+    imuData.linear_acceleration_covariance[0] = variance[0];
+    imuData.linear_acceleration_covariance[4] = variance[1];
+    imuData.linear_acceleration_covariance[8] = variance[2];
+
+    for(int i=0; i<nData; i++) {
+        j = 3 * i;
+        while(!Gyro.isRawDataReadyOn()) {}
+        Gyro.readGyro(&data[j]);
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.angular_velocity_covariance, 0, sizeof(imuData.angular_velocity_covariance));
+    imuData.angular_velocity_covariance[0] = variance[0];
+    imuData.angular_velocity_covariance[4] = variance[1];
+    imuData.angular_velocity_covariance[8] = variance[2];
+
+    for(int i=0; i<nData; i++) {
+        while(!Gyro.isRawDataReadyOn()) {}
+        Gyro.readGyro(GyroValues);
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(AccelValues);
+        while(!Magn.isDataReady()) {}
+        Magn.ReadScaledAxis(MagValues);
+        Madgwick.update(GyroValues, AccelValues, MagValues);
+        j = 3 * i;
+        data[j]   = Madgwick.getRollRadians();
+        data[j+1] = Madgwick.getPitchRadians();
+        data[j+2] = Madgwick.getYawRadians();
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.orientation_covariance, 0, sizeof(imuData.orientation_covariance));
+    imuData.orientation_covariance[0] = variance[0];
+    imuData.orientation_covariance[4] = variance[1];
+    imuData.orientation_covariance[8] = variance[2];
+
+    Madgwick.getRotation(&qw, &qx, &qy, &qz);
+    imuData.orientation.x = qx;
+    imuData.orientation.y = qy;
+    imuData.orientation.z = qz;
+    imuData.orientation.w = qw;
 
     nh.initNode();
 
     if(!nh.advertise(odom_pub))
         Error_Handler();
-#if defined(SEND_IMU)
     if(!nh.advertise(imu_pub))
         Error_Handler();
-#endif
+    if(!nh.advertise(mag_pub))
+        Error_Handler();
 #if defined (USE_SONAR)
     if(!nh.advertise(obstacleDistance_pub))
         Error_Handler();
@@ -667,7 +721,6 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 pRightControlledMotor->Update();
             }
         }
-#if defined(SEND_IMU)
         else if(htim->Channel == IMU_UPDATE_CHANNEL) { // Time to Update IMU Data ? (400Hz)
             htim->Instance->CCR4 += IMUSamplingPulses;
             if(isMPU6050present)
@@ -675,15 +728,17 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
             if(isIMUpresent) {
                 Acc.get_Gxyz(AccelValues);
                 Gyro.readGyro(GyroValues);
-                #if defined(USE_MAGNETOMETER)
-                     Magn.ReadScaledAxis(MagValues);
-                     Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
-                     Madgwick.getRotation(&qw, &qx, &qy, &qz);
-                     imuData.orientation.w = qw;
-                     imuData.orientation.x = qy;
-                     imuData.orientation.y = qx;
-                     imuData.orientation.z = qz;
-                #endif
+                Magn.ReadScaledAxis(MagValues);
+                Madgwick.update(GyroValues, AccelValues, MagValues); // ~13us
+                Madgwick.getRotation(&qw, &qx, &qy, &qz);
+                imuData.orientation.w = qw;
+                imuData.orientation.x = qy;
+                imuData.orientation.y = qx;
+                imuData.orientation.z = qz;
+                compassData.header.stamp = nh.now();
+                compassData.magnetic_field.x = MagValues[0];
+                compassData.magnetic_field.y = MagValues[1];
+                compassData.magnetic_field.z = MagValues[2];
                 // Convert accel from g to m/sec^2
                 imuData.linear_acceleration.x = AccelValues[0]* 9.80665 ;
                 imuData.linear_acceleration.y = AccelValues[1]* 9.80665 ;
@@ -696,7 +751,6 @@ HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim) {
                 //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
         }
-#endif
         else if(htim->Channel == ODOMETRY_UPDATE_CHANNEL) { // Time to Update Odometry
             htim->Instance->CCR3 += odometrySamplingPulses;
 #if defined(USE_SONAR)

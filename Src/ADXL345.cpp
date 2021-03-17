@@ -101,7 +101,7 @@ ADXL345::readAccel(int16_t *xyz){
 
 
 void
-ADXL345::get_Gxyz(volatile float *xyz){
+ADXL345::get_Gxyz(float *xyz){
     int16_t i;
     int16_t xyz_int[3];
     readAccel(xyz_int);
