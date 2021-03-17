@@ -162,6 +162,7 @@ static void Init_Hardware();
 static bool IMU_Init();
 static void Init_ROS();
 static bool updateOdometry();
+static void calibrateIMU();
 
 
 ///================
@@ -170,6 +171,7 @@ static bool updateOdometry();
 static void targetSpeed_cb(const geometry_msgs::Twist& speed);
 static void left_PID_cb(const geometry_msgs::Vector3& msg);
 static void right_PID_cb(const geometry_msgs::Vector3& msg);
+//TODO: static void calibrateIMU_cb();
 
 
 ///===================
@@ -307,6 +309,8 @@ ros::Publisher mag_pub("mag_data", &compassData);
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
 ros::Subscriber<geometry_msgs::Vector3> right_PID_sub("rightPID", &right_PID_cb);
+
+//TODO: ros::ServiceServer service("recalibrate_imu", &calibrateIMU_cb, ...);
 
 ///=======================================================================
 ///                                Main
@@ -574,10 +578,6 @@ IMU_Init() {
 
 void
 Init_ROS() {
-    int nData = 1000;
-    float data[3*1000] = {0.0};
-    double variance[3];
-    int j;
     // TODO: Assign more realistic values for each quantity
     double pcov[36] = { 0.1, 0.0, 0.0,   0.0,   0.0,   0.0,
                         0.0, 0.1, 0.0,   0.0,   0.0,   0.0,
@@ -596,55 +596,7 @@ Init_ROS() {
     odom.child_frame_id = {"base_link"};
 
     imuData.header.frame_id = {"imu_link"};
-
-    for(int i=0; i<nData; i++) {
-        j = 3 * i;
-        while(!Acc.getInterruptSource(7)) {}
-        Acc.get_Gxyz(&data[j]);
-    }
-    getVariance(data, variance, nData);
-    memset(imuData.linear_acceleration_covariance,
-           0,
-           sizeof(imuData.linear_acceleration_covariance));
-    imuData.linear_acceleration_covariance[0] = variance[0];
-    imuData.linear_acceleration_covariance[4] = variance[1];
-    imuData.linear_acceleration_covariance[8] = variance[2];
-
-    for(int i=0; i<nData; i++) {
-        j = 3 * i;
-        while(!Gyro.isRawDataReadyOn()) {}
-        Gyro.readGyro(&data[j]);
-    }
-    getVariance(data, variance, nData);
-    memset(imuData.angular_velocity_covariance, 0, sizeof(imuData.angular_velocity_covariance));
-    imuData.angular_velocity_covariance[0] = variance[0];
-    imuData.angular_velocity_covariance[4] = variance[1];
-    imuData.angular_velocity_covariance[8] = variance[2];
-
-    for(int i=0; i<nData; i++) {
-        while(!Gyro.isRawDataReadyOn()) {}
-        Gyro.readGyro(GyroValues);
-        while(!Acc.getInterruptSource(7)) {}
-        Acc.get_Gxyz(AccelValues);
-        while(!Magn.isDataReady()) {}
-        Magn.ReadScaledAxis(MagValues);
-        Madgwick.update(GyroValues, AccelValues, MagValues);
-        j = 3 * i;
-        data[j]   = Madgwick.getRollRadians();
-        data[j+1] = Madgwick.getPitchRadians();
-        data[j+2] = Madgwick.getYawRadians();
-    }
-    getVariance(data, variance, nData);
-    memset(imuData.orientation_covariance, 0, sizeof(imuData.orientation_covariance));
-    imuData.orientation_covariance[0] = variance[0];
-    imuData.orientation_covariance[4] = variance[1];
-    imuData.orientation_covariance[8] = variance[2];
-
-    Madgwick.getRotation(&qw, &qx, &qy, &qz);
-    imuData.orientation.x = qx;
-    imuData.orientation.y = qy;
-    imuData.orientation.z = qz;
-    imuData.orientation.w = qw;
+    calibrateIMU();
 
     nh.initNode();
 
@@ -697,6 +649,80 @@ left_PID_cb(const geometry_msgs::Vector3& msg) {
 static void
 right_PID_cb(const geometry_msgs::Vector3& msg) {
     pRightControlledMotor->setPID(msg.x, msg.y, msg.z);
+}
+
+
+static void
+calibrateIMU() {
+    int nData = 1000;
+    float data[3*1000] = {0.0};
+    double variance[3];
+    int j;
+    for(int i=0; i<nData; i++) {
+        j = 3 * i;
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(&data[j]);
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.linear_acceleration_covariance,
+           0,
+           sizeof(imuData.linear_acceleration_covariance));
+    imuData.linear_acceleration_covariance[0] = variance[0];
+    imuData.linear_acceleration_covariance[4] = variance[1];
+    imuData.linear_acceleration_covariance[8] = variance[2];
+
+    for(int i=0; i<nData; i++) {
+        j = 3 * i;
+        while(!Gyro.isRawDataReadyOn()) {}
+        Gyro.readGyro(&data[j]);
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.angular_velocity_covariance, 0, sizeof(imuData.angular_velocity_covariance));
+    imuData.angular_velocity_covariance[0] = variance[0];
+    imuData.angular_velocity_covariance[4] = variance[1];
+    imuData.angular_velocity_covariance[8] = variance[2];
+
+    for(int i=0; i<nData; i++) {
+        while(!Gyro.isRawDataReadyOn()) {}
+        Gyro.readGyro(GyroValues);
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(AccelValues);
+        while(!Magn.isDataReady()) {}
+        Magn.ReadScaledAxis(MagValues);
+        Madgwick.update(GyroValues, AccelValues, MagValues);
+        j = 3 * i;
+        data[j]   = Madgwick.getRollRadians();
+        data[j+1] = Madgwick.getPitchRadians();
+        data[j+2] = Madgwick.getYawRadians();
+    }
+    getVariance(data, variance, nData);
+    memset(imuData.orientation_covariance,
+           0,
+           sizeof(imuData.orientation_covariance));
+    imuData.orientation_covariance[0] = variance[0];
+    imuData.orientation_covariance[4] = variance[1];
+    imuData.orientation_covariance[8] = variance[2];
+
+    Madgwick.getRotation(&qw, &qx, &qy, &qz);
+    imuData.orientation.x = qx;
+    imuData.orientation.y = qy;
+    imuData.orientation.z = qz;
+    imuData.orientation.w = qw;
+
+    for(int i=0; i<nData; i++) {
+        Magn.ReadScaledAxis(MagValues);
+        j = 3 * i;
+        data[j]   = MagValues[0];
+        data[j+1] = MagValues[1];
+        data[j+2] = MagValues[2];
+    }
+    getVariance(data, variance, nData);
+    memset(compassData.magnetic_field_covariance,
+           0,
+           sizeof(compassData.magnetic_field_covariance));
+    compassData.magnetic_field_covariance[0] = variance[0];
+    compassData.magnetic_field_covariance[4] = variance[1];
+    compassData.magnetic_field_covariance[8] = variance[2];
 }
 
 
@@ -861,15 +887,15 @@ HAL_UART_ErrorCallback(UART_HandleTypeDef *UartHandle) {
 
 
 #ifdef  USE_FULL_ASSERT
-char txBuffer[256];
+    char txBuffer[256];
 
-void
-assert_failed(uint8_t *file, uint32_t line) {
-    sprintf((char *)txBuffer, "%s - line: %d", file, line);
-    nh.loginfo(txBuffer);
-    while(true) {
-        HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-        HAL_Delay(200);
+    void
+    assert_failed(uint8_t *file, uint32_t line) {
+        sprintf((char *)txBuffer, "%s - line: %d", file, line);
+        nh.loginfo(txBuffer);
+        while(true) {
+            HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+            HAL_Delay(200);
+        }
     }
-}
 #endif // USE_FULL_ASSERT
