@@ -368,9 +368,9 @@ Loop() {
         while(nh.connected()) {
             if(isTimeToUpdateOdometry) {
                 isTimeToUpdateOdometry = false;
-                HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
                 nn += 1;
                 if(nn == 1) {
+                    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
                     updateOdometry();
                     odom_pub.publish(&odom);
                 }
@@ -409,14 +409,15 @@ Loop() {
                 //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
             }
 #endif
-            // If No New Speed Data have been Received in the Right Time
-            // Halt the Robot to avoid possible damages
+            /// If No New Speed Data have been Received in the Right Time
+            /// Halt the Robot to avoid possible damages
             if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
                 leftTargetSpeed  = 0.0; // in m/s
                 rightTargetSpeed = 0.0; // in m/s
             }
             pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
             pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
+            nh.spinOnce();
         } // while(nh.connected()
 
         /// Serial Node Disconnected
