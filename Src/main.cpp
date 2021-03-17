@@ -318,9 +318,7 @@ ros::Subscriber<geometry_msgs::Vector3> right_PID_sub("rightPID", &right_PID_cb)
 int
 main(void) {
     Setup();
-    while(true) {
-        Loop();
-    }
+    Loop();
 }
 
 
@@ -338,21 +336,23 @@ Setup() {
 ///    Main Loop
 ///=======================================================================
 
-int nn=1;
+int nn = 0;
 
 static void
 Loop() {
     while(true) {
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
         /// Wait until Serial Node is Up and Ready
         while(!nh.connected()) {
             nh.spinOnce();
-            HAL_Delay(1);
+            HAL_Delay(10);
         }
+
         /// Now Serial Node is Up and Ready
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-
         calibrateIMU();
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+        HAL_Delay(1000);
 
         HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
         // Start the Periodic Sampling of:
@@ -362,21 +362,10 @@ Loop() {
         // Enable and set Button EXTI Interrupt
         HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
         nh.loginfo("Buggy Ready...");
-        last_cmd_vel_time = nh.now();
 
+        last_cmd_vel_time = nh.now();
+        nn = 0;
         while(nh.connected()) {
-#if defined(USE_SONAR)
-            if(isTimeToUpdateSonar) {
-                isTimeToUpdateSonar = false;
-                HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
-                obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
-                HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
-                obstacleDistance.header.stamp = nh.now();
-                obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
-                obstacleDistance_pub.publish(&obstacleDistance);
-                //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-            }
-#endif
             if(isTimeToUpdateOdometry) {
                 isTimeToUpdateOdometry = false;
                 HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
@@ -408,6 +397,18 @@ Loop() {
                     }
                 }
             }
+#if defined(USE_SONAR)
+            if(isTimeToUpdateSonar) {
+                isTimeToUpdateSonar = false;
+                HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
+                obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
+                HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+                obstacleDistance.header.stamp = nh.now();
+                obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
+                obstacleDistance_pub.publish(&obstacleDistance);
+                //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+            }
+#endif
             // If No New Speed Data have been Received in the Right Time
             // Halt the Robot to avoid possible damages
             if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
@@ -665,14 +666,15 @@ right_PID_cb(const geometry_msgs::Vector3& msg) {
 
 static void
 calibrateIMU() {
-    int nData = 1000;
-    float data[3*1000] = {0.0};
+    int nData = 100;
+    float data[3*100] = {0.0};
     double variance[3];
     int j;
     for(int i=0; i<nData; i++) {
         j = 3 * i;
         while(!Acc.getInterruptSource(7)) {}
         Acc.get_Gxyz(&data[j]);
+        nh.spinOnce();
     }
     calculateVariance(data, variance, nData);
     memset(imuData.linear_acceleration_covariance,
@@ -681,17 +683,20 @@ calibrateIMU() {
     imuData.linear_acceleration_covariance[0] = variance[0];
     imuData.linear_acceleration_covariance[4] = variance[1];
     imuData.linear_acceleration_covariance[8] = variance[2];
+    nh.loginfo("imuData.linear_acceleration_covariance Calculated...");
 
     for(int i=0; i<nData; i++) {
         j = 3 * i;
         while(!Gyro.isRawDataReadyOn()) {}
         Gyro.readGyro(&data[j]);
+        nh.spinOnce();
     }
     calculateVariance(data, variance, nData);
     memset(imuData.angular_velocity_covariance, 0, sizeof(imuData.angular_velocity_covariance));
     imuData.angular_velocity_covariance[0] = variance[0];
     imuData.angular_velocity_covariance[4] = variance[1];
     imuData.angular_velocity_covariance[8] = variance[2];
+    nh.loginfo("imuData.angular_velocity_covariance Calculated...");
 
     for(int i=0; i<nData; i++) {
         while(!Gyro.isRawDataReadyOn()) {}
@@ -705,6 +710,7 @@ calibrateIMU() {
         data[j]   = Madgwick.getRollRadians();
         data[j+1] = Madgwick.getPitchRadians();
         data[j+2] = Madgwick.getYawRadians();
+        nh.spinOnce();
     }
     calculateVariance(data, variance, nData);
     memset(imuData.orientation_covariance,
@@ -713,6 +719,7 @@ calibrateIMU() {
     imuData.orientation_covariance[0] = variance[0];
     imuData.orientation_covariance[4] = variance[1];
     imuData.orientation_covariance[8] = variance[2];
+    nh.loginfo("imuData.orientation_covariance Calculated...");
 
     Madgwick.getRotation(&qw, &qx, &qy, &qz);
     imuData.orientation.x = qx;
@@ -726,6 +733,7 @@ calibrateIMU() {
         data[j]   = MagValues[0];
         data[j+1] = MagValues[1];
         data[j+2] = MagValues[2];
+        nh.spinOnce();
     }
     calculateVariance(data, variance, nData);
     memset(compassData.magnetic_field_covariance,
@@ -734,6 +742,7 @@ calibrateIMU() {
     compassData.magnetic_field_covariance[0] = variance[0];
     compassData.magnetic_field_covariance[4] = variance[1];
     compassData.magnetic_field_covariance[8] = variance[2];
+    nh.loginfo("compassData.magnetic_field_covariance Calculated...");
 }
 
 
