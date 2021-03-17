@@ -348,7 +348,7 @@ Setup() {
     // Enable and set Button EXTI Interrupt
     HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-    HAL_Delay(300);
+    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     nh.loginfo("Buggy Ready...");
     last_cmd_vel_time = nh.now();
 }
@@ -362,65 +362,92 @@ int nn=1;
 
 static void
 Loop() {
-    if(nh.connected()) {
+    while(true) {
+        // Wait until Serial Node is Up and Ready
+        while(!nh.connected())
+            nh.spinOnce();
+
+        // Serial Node is Up and Ready
+        calibrateIMU();
+        HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+        // Start the Periodic Sampling of:
+        HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
+        HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
+        HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
+        // Enable and set Button EXTI Interrupt
+        HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+        nh.loginfo("Buggy Ready...");
+        last_cmd_vel_time = nh.now();
+
+        while(nh.connected()) {
 #if defined(USE_SONAR)
-        if(isTimeToUpdateSonar) {
-            isTimeToUpdateSonar = false;
-            HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
-            obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
-            HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
-            obstacleDistance.header.stamp = nh.now();
-            obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
-            obstacleDistance_pub.publish(&obstacleDistance);
-            //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-        }
+            if(isTimeToUpdateSonar) {
+                isTimeToUpdateSonar = false;
+                HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
+                obstacleDistance.range = 0.5 * soundSpeed*(double(uwDiffCapture)/sonarClockFrequency); // [m]
+                HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+                obstacleDistance.header.stamp = nh.now();
+                obstacleDistance.radiation_type = obstacleDistance.ULTRASOUND;
+                obstacleDistance_pub.publish(&obstacleDistance);
+                //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+            }
 #endif
-        if(isTimeToUpdateOdometry) {
-            isTimeToUpdateOdometry = false;
-            nn += 1;
-            if(nn == 1) {
-                updateOdometry();
-                odom_pub.publish(&odom);
-            }
-            else if(nn == 2) {
-                if(isIMUpresent) {
-                    imu_pub.publish(&imuData);
-                }
-            }
-            else if(nn == 3) {
-                if(isIMUpresent) {
-                    mag_pub.publish(&compassData);
-                }
+            if(isTimeToUpdateOdometry) {
+                isTimeToUpdateOdometry = false;
                 HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-            }
-            else {
-                nn = 0;
-                if(isMPU6050present) {
-                    imuData.linear_acceleration.x = mpuData.Ax;
-                    imuData.linear_acceleration.y = mpuData.Ay;
-                    imuData.linear_acceleration.z = mpuData.Az;
-                    imuData.angular_velocity.x    = mpuData.Gx;
-                    imuData.angular_velocity.y    = mpuData.Gy;
-                    imuData.angular_velocity.z    = mpuData.Gz;
-                    //TODO Prepare MPU6050 Data to send
+                nn += 1;
+                if(nn == 1) {
+                    updateOdometry();
+                    odom_pub.publish(&odom);
+                }
+                else if(nn == 2) {
+                    if(isIMUpresent) {
+                        imu_pub.publish(&imuData);
+                    }
+                }
+                else if(nn == 3) {
+                    if(isIMUpresent) {
+                        mag_pub.publish(&compassData);
+                    }
+                }
+                else {
+                    nn = 0;
+                    if(isMPU6050present) {
+                        imuData.linear_acceleration.x = mpuData.Ax;
+                        imuData.linear_acceleration.y = mpuData.Ay;
+                        imuData.linear_acceleration.z = mpuData.Az;
+                        imuData.angular_velocity.x    = mpuData.Gx;
+                        imuData.angular_velocity.y    = mpuData.Gy;
+                        imuData.angular_velocity.z    = mpuData.Gz;
+                        //TODO Prepare MPU6050 Data to send
+                    }
                 }
             }
-        }
-        // If No New Speed Data have been Received in the Right Time
-        // Halt the Robot to avoid possible damages
-        if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
-            leftTargetSpeed  = 0.0; // in m/s
-            rightTargetSpeed = 0.0; // in m/s
-        }
-    }
-    else { // Disconnected !!!
+            // If No New Speed Data have been Received in the Right Time
+            // Halt the Robot to avoid possible damages
+            if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
+                leftTargetSpeed  = 0.0; // in m/s
+                rightTargetSpeed = 0.0; // in m/s
+            }
+            pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+            pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
+        } // while(nh.connected()
+
+        /// Serial Node Disconnected
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
         leftTargetSpeed  = 0.0; // in m/s
         rightTargetSpeed = 0.0; // in m/s
-    } // if(nh.connected()
+        pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+        pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
 
-    pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
-    pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
-    nh.spinOnce();
+        HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
+        // Stop the Periodic Sampling of:
+        HAL_TIM_OC_Stop_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
+        HAL_TIM_OC_Stop_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
+        HAL_TIM_OC_Stop_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
+        // Disable Button EXTI Interrupt
+        HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+    } // while(true)
 }
 ///=======================================================================
 ///    End Loop
@@ -596,7 +623,6 @@ Init_ROS() {
     odom.child_frame_id = {"base_link"};
 
     imuData.header.frame_id = {"imu_link"};
-    calibrateIMU();
 
     nh.initNode();
 
