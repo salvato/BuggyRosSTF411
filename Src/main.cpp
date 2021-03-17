@@ -163,7 +163,7 @@ static bool IMU_Init();
 static void Init_ROS();
 static bool updateOdometry();
 static void calibrateIMU();
-
+static void calculateVariance(float* data, double* var, int nData);
 
 ///================
 /// ROS callbacks
@@ -331,26 +331,6 @@ static void
 Setup() {
     Init_Hardware();
     Init_ROS();
-
-    // Enable the Periodic Samplig Timer Interrupt
-    HAL_NVIC_SetPriority(SAMPLING_IRQ, 0, 0);
-
-    // Wait until Serial Node is Up and Ready
-    while(!nh.connected())
-        nh.spinOnce();
-
-    HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
-    // Start the Periodic Sampling of:
-
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);     // IMU
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
-    // Enable and set Button EXTI Interrupt
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
-    HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-    nh.loginfo("Buggy Ready...");
-    last_cmd_vel_time = nh.now();
 }
 
 
@@ -363,11 +343,14 @@ int nn=1;
 static void
 Loop() {
     while(true) {
-        // Wait until Serial Node is Up and Ready
-        while(!nh.connected())
+        /// Wait until Serial Node is Up and Ready
+        while(!nh.connected()) {
             nh.spinOnce();
+            HAL_Delay(1);
+        }
 
-        // Serial Node is Up and Ready
+        /// Serial Node is Up and Ready
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
         calibrateIMU();
         HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
         // Start the Periodic Sampling of:
@@ -537,8 +520,8 @@ Init_Hardware() {
 }
 
 
-void
-getVariance(float* data, double* var, int nData) {
+static void
+calculateVariance(float* data, double* var, int nData) {
     double avg[3] = {0.0};
     int j;
     for(int i=0; i<nData; i++) {
@@ -626,6 +609,13 @@ Init_ROS() {
 
     nh.initNode();
 
+    if(!nh.subscribe(targetSpeed_sub))
+        Error_Handler();
+    if(!nh.subscribe(left_PID_sub))
+        Error_Handler();
+    if(!nh.subscribe(right_PID_sub))
+        Error_Handler();
+
     if(!nh.advertise(odom_pub))
         Error_Handler();
     if(!nh.advertise(imu_pub))
@@ -636,13 +626,6 @@ Init_ROS() {
     if(!nh.advertise(obstacleDistance_pub))
         Error_Handler();
 #endif
-
-    if(!nh.subscribe(targetSpeed_sub))
-        Error_Handler();
-    if(!nh.subscribe(left_PID_sub))
-        Error_Handler();
-    if(!nh.subscribe(right_PID_sub))
-        Error_Handler();
 }
 
 
@@ -689,7 +672,7 @@ calibrateIMU() {
         while(!Acc.getInterruptSource(7)) {}
         Acc.get_Gxyz(&data[j]);
     }
-    getVariance(data, variance, nData);
+    calculateVariance(data, variance, nData);
     memset(imuData.linear_acceleration_covariance,
            0,
            sizeof(imuData.linear_acceleration_covariance));
@@ -702,7 +685,7 @@ calibrateIMU() {
         while(!Gyro.isRawDataReadyOn()) {}
         Gyro.readGyro(&data[j]);
     }
-    getVariance(data, variance, nData);
+    calculateVariance(data, variance, nData);
     memset(imuData.angular_velocity_covariance, 0, sizeof(imuData.angular_velocity_covariance));
     imuData.angular_velocity_covariance[0] = variance[0];
     imuData.angular_velocity_covariance[4] = variance[1];
@@ -721,7 +704,7 @@ calibrateIMU() {
         data[j+1] = Madgwick.getPitchRadians();
         data[j+2] = Madgwick.getYawRadians();
     }
-    getVariance(data, variance, nData);
+    calculateVariance(data, variance, nData);
     memset(imuData.orientation_covariance,
            0,
            sizeof(imuData.orientation_covariance));
@@ -742,7 +725,7 @@ calibrateIMU() {
         data[j+1] = MagValues[1];
         data[j+2] = MagValues[2];
     }
-    getVariance(data, variance, nData);
+    calculateVariance(data, variance, nData);
     memset(compassData.magnetic_field_covariance,
            0,
            sizeof(compassData.magnetic_field_covariance));
