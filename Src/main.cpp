@@ -348,10 +348,12 @@ Loop() {
             nh.spinOnce();
             HAL_Delay(1);
         }
-
-        /// Serial Node is Up and Ready
+        /// Now Serial Node is Up and Ready
         HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+
         calibrateIMU();
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+
         HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
         // Start the Periodic Sampling of:
         HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
