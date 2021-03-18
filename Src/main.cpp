@@ -128,6 +128,7 @@
 #include <sensor_msgs/Imu.h>       // Published IMU Data
 #include <sensor_msgs/Range.h>     // Published Sonar Data
 #include <sensor_msgs/MagneticField.h> // Published Compass Data
+#include <std_msgs/UInt8.h>
 
 
 #ifndef M_PI
@@ -166,13 +167,15 @@ static bool updateOdometry();
 static void calibrateIMU();
 static void calculateVariance(float* data, double* var, int nData);
 
+
 ///================
 /// ROS callbacks
 ///================
 static void targetSpeed_cb(const geometry_msgs::Twist& speed);
 static void left_PID_cb(const geometry_msgs::Vector3& msg);
 static void right_PID_cb(const geometry_msgs::Vector3& msg);
-//TODO: static void calibrateIMU_cb();
+static void calibrateIMU_cb(const std_msgs::UInt8& msg);
+static void resetOdometry_cb(const std_msgs::UInt8& msg);
 
 
 ///===================
@@ -310,8 +313,8 @@ ros::Publisher mag_pub("mag_data", &compassData);
 ros::Subscriber<geometry_msgs::Twist>   targetSpeed_sub("cmd_vel", &targetSpeed_cb);
 ros::Subscriber<geometry_msgs::Vector3> left_PID_sub("leftPID", &left_PID_cb);
 ros::Subscriber<geometry_msgs::Vector3> right_PID_sub("rightPID", &right_PID_cb);
-
-//TODO: ros::ServiceServer service("recalibrate_imu", &calibrateIMU_cb, ...);
+ros::Subscriber<std_msgs::UInt8>        calibrate_IMU_sub("recalibrate_imu", &calibrateIMU_cb);
+ros::Subscriber<std_msgs::UInt8>        reset_odometry_sub("reset_odometry", &resetOdometry_cb);
 
 ///=======================================================================
 ///                                Main
@@ -649,6 +652,33 @@ HAL_MspInit(void) {
     __HAL_RCC_SYSCFG_CLK_ENABLE();
     __HAL_RCC_PWR_CLK_ENABLE();
     HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_0);
+}
+
+
+static void
+resetOdometry_cb(const std_msgs::UInt8& msg) {
+    (void)msg;
+    resetOdometry();
+}
+
+
+static void
+calibrateIMU_cb(const std_msgs::UInt8& msg) {
+    (void)msg;
+    leftTargetSpeed  = 0.0; // in m/s
+    rightTargetSpeed = 0.0; // in m/s
+    last_cmd_vel_time = nh.now();
+    pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+    pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
+    HAL_Delay(1000); // Ensure a Stationary Buggy
+    bool bSamplingActive = NVIC_GetEnableIRQ(SAMPLING_IRQ) != 0;
+    if(bSamplingActive) {
+        HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
+    }
+    calibrateIMU();
+    if(bSamplingActive) {
+        HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+    }
 }
 
 
