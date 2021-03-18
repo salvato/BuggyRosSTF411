@@ -96,3 +96,10 @@ double
 ControlledMotor::spaceTraveled () { // in [m]
     return double(pEncoder->readAndResetTotal())/encoderCountsPerMeter;
 }
+
+
+/// Resets the wheel's position
+void
+ControlledMotor::resetPosition() {
+    pEncoder->readAndResetTotal();
+}

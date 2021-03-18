@@ -18,6 +18,7 @@ public:
     void Stop();
     double getCurrentSpeed(); // in m/s
     double spaceTraveled(); // in m
+    void resetPosition();
 
 public:
 
