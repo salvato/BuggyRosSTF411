@@ -335,6 +335,7 @@ static void
 Setup() {
     Init_Hardware();
     Init_ROS();
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
 
@@ -360,17 +361,17 @@ Loop() {
     HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     HAL_Delay(1000);
 
-    HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
-    // Start the Periodic Sampling of:
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
-    HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
-    // Enable and set Button EXTI Interrupt
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
+    // Start the Periodic Sampling:
     nh.loginfo("Buggy Ready...");
 
     last_cmd_vel_time = nh.now();
     nn = 0;
+    HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
+    // Start the Periodic Sampling Counters:
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
+    HAL_TIM_OC_Start_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
+    // Enable and set Button EXTI Interrupt
     while(nh.connected()) {
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
@@ -433,13 +434,13 @@ Loop() {
     pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
     pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
 
-    HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
-    // Stop the Periodic Sampling of:
+    // Stop the Periodic Sampling:
+    // Start the Periodic Sampling Counters:
     HAL_TIM_OC_Stop_IT(&hSamplingTimer, IMU_CHANNEL);      // IMU
     HAL_TIM_OC_Stop_IT(&hSamplingTimer, MOTOR_CHANNEL);    // Motors
     HAL_TIM_OC_Stop_IT(&hSamplingTimer, ODOMETRY_CHANNEL); // Odometry & Sonar
-    // Disable Button EXTI Interrupt
-    HAL_NVIC_DisableIRQ(EXTI15_10_IRQn);
+    // Enable and set Button EXTI Interrupt
+    HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
 }
 ///=======================================================================
 ///    End Loop
