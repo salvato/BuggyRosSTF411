@@ -607,12 +607,12 @@ IMU_Init() {
 void
 Init_ROS() {
     // TODO: Assign more realistic values for each quantity
-    double pcov[36] = { 0.1, 0.0, 0.0,   0.0,   0.0,   0.0,
-                        0.0, 0.1, 0.0,   0.0,   0.0,   0.0,
-                        0.0, 0.0, 1.0e6, 0.0,   0.0,   0.0, // Z axis not valid
-                        0.0, 0.0, 0.0,   1.0e6, 0.0,   0.0, // Pitch and ...
-                        0.0, 0.0, 0.0,   0.0,   1.0e6, 0.0, // Roll not valid
-                        0.0, 0.0, 0.0,   0.0,   0.0,   0.02};
+    double pcov[36] = { 0.1, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.1, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.1, 0.0, 0.0, 0.0, // Z axis not valid
+                        0.0, 0.0, 0.0, 0.1, 0.0, 0.0, // Pitch and ...
+                        0.0, 0.0, 0.0, 0.0, 0.1, 0.0, // Roll not valid
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.02};
 
     // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
