@@ -335,7 +335,6 @@ static void
 Setup() {
     Init_Hardware();
     Init_ROS();
-    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
 
@@ -535,6 +534,9 @@ Init_Hardware() {
 
     // Initialize Periodic Samplig Timer
     SamplingTimerInit(IMUSamplingPulses, motorSamplingPulses, odometrySamplingPulses);
+
+    // Enable Push Button Interrupt
+    HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
 
@@ -558,9 +560,9 @@ calculateVariance(float* data, double* var, int nData) {
         var[1] += (data[j+1]-avg[1])*(data[j+1]-avg[1]);
         var[2] += (data[j+2]-avg[2])*(data[j+2]-avg[2]);
     }
-    var[0] /= double(nData);
-    var[1] /= double(nData);
-    var[2] /= double(nData);
+    var[0] /= double(nData-1);
+    var[1] /= double(nData-1);
+    var[2] /= double(nData-1);
 }
 
 
@@ -607,12 +609,12 @@ IMU_Init() {
 void
 Init_ROS() {
     // TODO: Assign more realistic values for each quantity
-    double pcov[36] = { 0.1, 0.0, 0.0, 0.0, 0.0, 0.0,
-                        0.0, 0.1, 0.0, 0.0, 0.0, 0.0,
-                        0.0, 0.0, 0.1, 0.0, 0.0, 0.0, // Z axis not valid
-                        0.0, 0.0, 0.0, 0.1, 0.0, 0.0, // Pitch and ...
-                        0.0, 0.0, 0.0, 0.0, 0.1, 0.0, // Roll not valid
-                        0.0, 0.0, 0.0, 0.0, 0.0, 0.02};
+    double pcov[36] = { 0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.01, 0.0, 0.0, 0.0, 0.0,
+                        0.0, 0.0, 0.01, 0.0, 0.0, 0.0, // Z axis not valid
+                        0.0, 0.0, 0.0, 0.01, 0.0, 0.0, // Pitch and ...
+                        0.0, 0.0, 0.0, 0.0, 0.01, 0.0, // Roll not valid
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.001};
 
     // Values that Never Change
     memcpy(&(odom.pose.covariance),  pcov, sizeof(double)*36);
