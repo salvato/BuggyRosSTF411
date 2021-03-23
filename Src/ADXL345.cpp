@@ -38,6 +38,9 @@ ADXL345::ADXL345() {
     gains[0] = 0.0039; // 3.9mg/LSB (see datasheet)
     gains[1] = 0.0039; // 3.9mg/LSB (see datasheet)
     gains[2] = 0.0039; // 3.9mg/LSB (see datasheet)
+    offsets[0] = 0.0;
+    offsets[1] = 0.0;
+    offsets[2] = 0.0;
 }
 
 
@@ -62,27 +65,7 @@ ADXL345::init(int16_t _address, I2C_HandleTypeDef *_pHi2c) {
     getRangeSetting(&buf);
     if(buf != g_range)
         return false;
-    int16_t x, y, z;
-    offsets[0] = 0.0;
-    offsets[1] = 0.0;
-    offsets[2] = 0.0;
-    for(int i=0; i<31; i++) {
-        while(!getInterruptSource(7)) {}
-        readAccel(&x, &y, &z);
-        offsets[0] += float(x);
-        offsets[1] += float(y);
-        offsets[2] += float(z);
-    }
-    offsets[0] /= 31.0;
-    offsets[1] /= 31.0;
-    offsets[2] /= 31.0;
-    float module = offsets[0]*offsets[0] +
-                   offsets[1]*offsets[1] +
-                   offsets[2]*offsets[2];
-    module = sqrt(module);
-    offsets[0] = offsets[0]*(gains[0]*9.81)/module;
-    offsets[1] = offsets[1]*(gains[1]*9.81)/module;
-    offsets[2] = offsets[2]*(gains[2]*9.81)/module;
+
     return true;
 }
 

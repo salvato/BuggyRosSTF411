@@ -693,6 +693,7 @@ targetSpeed_cb(const geometry_msgs::Twist& speed) {
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
     last_cmd_vel_time = nh.now();
+    nh.loginfo("Buggy - Speed Received...");
 }
 
 
@@ -711,9 +712,32 @@ right_PID_cb(const geometry_msgs::Vector3& msg) {
 static void
 calibrateIMU() {
     int nData = 100;
-    float data[3*100] = {0.0};
     double variance[3];
+    float data[3*100];
+    float offsets[3]  = {0.0};
+    Acc.offsets[0] = 0.0;
+    Acc.offsets[1] = 0.0;
+    Acc.offsets[2] = 0.0;
     int j;
+    for(int i=0; i<nData; i++) {
+        j = 3 * i;
+        while(!Acc.getInterruptSource(7)) {}
+        Acc.get_Gxyz(&data[j]);
+        offsets[0] += data[j];
+        offsets[1] += data[j+1];
+        offsets[2] += data[j+2];
+        nh.spinOnce();
+    }
+    offsets[0] /= nData;
+    offsets[1] /= nData;
+    offsets[2] /= nData;
+    float module = offsets[0]*offsets[0] +
+                   offsets[1]*offsets[1] +
+                   offsets[2]*offsets[2];
+    module = sqrt(module);
+    Acc.offsets[0] = offsets[0]*(Acc.gains[0]*9.81)/module;
+    Acc.offsets[1] = offsets[1]*(Acc.gains[1]*9.81)/module;
+    Acc.offsets[2] = offsets[2]*(Acc.gains[2]*9.81)/module;
     for(int i=0; i<nData; i++) {
         j = 3 * i;
         while(!Acc.getInterruptSource(7)) {}
