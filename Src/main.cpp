@@ -264,7 +264,7 @@ uint32_t IMUSamplingFrequency    = 400; // [Hz]
 uint32_t IMUSamplingPulses       = uint32_t(periodicClockFrequency/IMUSamplingFrequency +0.5); // [Hz]
 uint32_t motorSamplingFrequency  = 100;  // [Hz]
 uint32_t motorSamplingPulses     = uint32_t(periodicClockFrequency/motorSamplingFrequency+0.5); // [Hz]
-uint32_t odometryUpdateFrequency = 4*30;  // [Hz]
+uint32_t odometryUpdateFrequency = 4*15;  // [Hz]
 uint32_t odometrySamplingPulses  = uint32_t(periodicClockFrequency/odometryUpdateFrequency+0.5); // [Hz]
 uint32_t sonarSamplingFrequency  = odometryUpdateFrequency;  // [Hz] (Max 40Hz)
 uint32_t sonarSamplingPulses     = uint32_t(periodicClockFrequency/sonarSamplingFrequency+0.5);
@@ -410,9 +410,6 @@ Loop() {
                 leftTargetSpeed  = 0.0; // in m/s
                 rightTargetSpeed = 0.0; // in m/s
             }
-            pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
-            pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
-            nh.spinOnce();
         }
 #if defined(USE_SONAR)
         if(isTimeToUpdateSonar) {
@@ -426,6 +423,9 @@ Loop() {
             //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
 #endif
+        pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+        pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
+        nh.spinOnce();
     } // while(nh.connected()
 
     /// Serial Node Disconnected
