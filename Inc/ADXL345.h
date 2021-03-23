@@ -191,7 +191,7 @@ public:
     void setInterrupt(byte interruptBit, bool state);
 
     void getRangeSetting(byte* rangeSetting);
-    void setRangeSetting(int16_t val);
+    void setRangeSetting(byte val);
     bool getSelfTestBit();
     void setSelfTestBit(bool selfTestBit);
     bool getSpiBit();
@@ -212,4 +212,5 @@ private:
     bool getRegisterBit(byte regAdress, int16_t bitPos);
     byte buff[6];    //6 bytes buffer for saving data read from the device
     int16_t dev_address;
+    byte g_range;
 };

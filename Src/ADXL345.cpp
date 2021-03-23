@@ -34,12 +34,10 @@ ADXL345::ADXL345() {
     error_code  = ADXL345_NO_ERROR;
     pHi2c       = nullptr;
     dev_address = ADXL345_ADDR_ALT_LOW << 1;
+    g_range = 4;       // g Range +/- 4g
     gains[0] = 0.0039; // 3.9mg/LSB (see datasheet)
     gains[1] = 0.0039; // 3.9mg/LSB (see datasheet)
     gains[2] = 0.0039; // 3.9mg/LSB (see datasheet)
-    offsets[0] = 0.0;
-    offsets[1] = 0.0;
-    offsets[2] = 0.0;
 }
 
 
@@ -47,22 +45,44 @@ bool
 ADXL345::init(int16_t _address, I2C_HandleTypeDef *_pHi2c) {
     pHi2c       = _pHi2c;
     dev_address = _address << 1;
-
+    //Turn ON the ADXL345
     if(!powerOn())
         return false;
-    byte buf;
-    if(!readFrom(ADXL345_DEVID, 1, &buf))
-        return false;
+    // Check the identity of the Sensor
+    byte buf = 0;
+    readFrom(ADXL345_DEVID, 1, &buf);
     if(buf != ADXL345_IDENTITY)
         return false;
-
+    // Set Full resolution
     setFullResBit(true);
     if(!getFullResBit())
         return false;
-    setRangeSetting(2); // +/- 2g. Possible values are: 2g, 4g, 8g, 16g
+    // Set and check the g range
+    setRangeSetting(g_range); // +/- 2g. Possible values are: 2g, 4g, 8g, 16g
     getRangeSetting(&buf);
-    if(buf !=2)
+    if(buf != g_range)
         return false;
+    int16_t x, y, z;
+    offsets[0] = 0.0;
+    offsets[1] = 0.0;
+    offsets[2] = 0.0;
+    for(int i=0; i<31; i++) {
+        while(!getInterruptSource(7)) {}
+        readAccel(&x, &y, &z);
+        offsets[0] += float(x);
+        offsets[1] += float(y);
+        offsets[2] += float(z);
+    }
+    offsets[0] /= 31.0;
+    offsets[1] /= 31.0;
+    offsets[2] /= 31.0;
+    float module = offsets[0]*offsets[0] +
+                   offsets[1]*offsets[1] +
+                   offsets[2]*offsets[2];
+    module = sqrt(module);
+    offsets[0] = offsets[0]*(gains[0]*9.81)/module;
+    offsets[1] = offsets[1]*(gains[1]*9.81)/module;
+    offsets[2] = offsets[2]*(gains[2]*9.81)/module;
     return true;
 }
 
@@ -106,7 +126,7 @@ ADXL345::get_Gxyz(float *xyz){
     int16_t xyz_int[3];
     readAccel(xyz_int);
     for(i=0; i<3; i++){
-        xyz[i] = float(xyz_int[i]) * gains[i];
+        xyz[i] = (float(xyz_int[i])-offsets[i]) * gains[i];
     }
 }
 
@@ -115,9 +135,9 @@ void
 ADXL345::get_Gxyz(geometry_msgs::Vector3* acceleration) {
     int16_t xyz_int[3];
     readAccel(xyz_int);
-    acceleration->x = double(xyz_int[0]) * gains[0];
-    acceleration->y = double(xyz_int[1]) * gains[1];
-    acceleration->z = double(xyz_int[2]) * gains[2];
+    acceleration->x = double(xyz_int[0]-offsets[0]) * gains[0];
+    acceleration->y = double(xyz_int[1]-offsets[1]) * gains[1];
+    acceleration->z = double(xyz_int[2]-offsets[2]) * gains[2];
 };
 
 
@@ -180,7 +200,7 @@ ADXL345::getRangeSetting(byte* rangeSetting) {
 
 // Sets the range setting, possible values are: 2, 4, 8, 16
 void
-ADXL345::setRangeSetting(int16_t val) {
+ADXL345::setRangeSetting(byte val) {
     byte _s;
     byte _b;
 
