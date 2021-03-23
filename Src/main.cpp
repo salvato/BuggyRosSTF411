@@ -382,12 +382,12 @@ Loop() {
             }
             else if(nn == 2) {
                 if(isIMUpresent) {
-                    imu_pub.publish(&imuData);
+                    //imu_pub.publish(&imuData);
                 }
             }
             else if(nn == 3) {
                 if(isIMUpresent) {
-                    mag_pub.publish(&compassData);
+                    //mag_pub.publish(&compassData);
                 }
             }
             else {
@@ -402,6 +402,15 @@ Loop() {
                     //TODO Prepare MPU6050 Data to send
                 }
             }
+            /// If No New Speed Data have been Received in the Right Time
+            /// Halt the Robot to avoid possible damages
+            if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
+                leftTargetSpeed  = 0.0; // in m/s
+                rightTargetSpeed = 0.0; // in m/s
+            }
+            pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
+            pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
+            nh.spinOnce();
         }
 #if defined(USE_SONAR)
         if(isTimeToUpdateSonar) {
@@ -415,15 +424,6 @@ Loop() {
             //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
         }
 #endif
-        /// If No New Speed Data have been Received in the Right Time
-        /// Halt the Robot to avoid possible damages
-        if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
-            leftTargetSpeed  = 0.0; // in m/s
-            rightTargetSpeed = 0.0; // in m/s
-        }
-        pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
-        pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
-        nh.spinOnce();
     } // while(nh.connected()
 
     /// Serial Node Disconnected
@@ -670,7 +670,6 @@ calibrateIMU_cb(const std_msgs::UInt8& msg) {
     (void)msg;
     leftTargetSpeed  = 0.0; // in m/s
     rightTargetSpeed = 0.0; // in m/s
-    last_cmd_vel_time = nh.now();
     pLeftControlledMotor->setTargetSpeed(leftTargetSpeed);
     pRightControlledMotor->setTargetSpeed(rightTargetSpeed);
     HAL_Delay(1000); // Ensure a Stationary Buggy
@@ -682,6 +681,7 @@ calibrateIMU_cb(const std_msgs::UInt8& msg) {
     if(bSamplingActive) {
         HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
     }
+    last_cmd_vel_time = nh.now();
 }
 
 
@@ -693,7 +693,6 @@ targetSpeed_cb(const geometry_msgs::Twist& speed) {
     leftTargetSpeed  = speed.linear.x - angSpeed;        // in m/s
     rightTargetSpeed = speed.linear.x + angSpeed;        // in m/s
     last_cmd_vel_time = nh.now();
-    nh.loginfo("Buggy - Speed Received...");
 }
 
 
