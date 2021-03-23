@@ -375,6 +375,7 @@ Loop() {
         if(isTimeToUpdateOdometry) {
             isTimeToUpdateOdometry = false;
             nn += 1;
+            HAL_NVIC_DisableIRQ(SAMPLING_IRQ);
             if(nn == 1) {
                 HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
                 updateOdometry();
@@ -382,12 +383,12 @@ Loop() {
             }
             else if(nn == 2) {
                 if(isIMUpresent) {
-                    //imu_pub.publish(&imuData);
+                    imu_pub.publish(&imuData);
                 }
             }
             else if(nn == 3) {
                 if(isIMUpresent) {
-                    //mag_pub.publish(&compassData);
+                    mag_pub.publish(&compassData);
                 }
             }
             else {
@@ -402,6 +403,7 @@ Loop() {
                     //TODO Prepare MPU6050 Data to send
                 }
             }
+            HAL_NVIC_EnableIRQ(SAMPLING_IRQ);
             /// If No New Speed Data have been Received in the Right Time
             /// Halt the Robot to avoid possible damages
             if((nh.now()-last_cmd_vel_time).toSec() > 0.5) {
