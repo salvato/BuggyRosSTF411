@@ -484,6 +484,7 @@ static void
 resetOdometry() {
     pLeftControlledMotor->resetPosition();
     pRightControlledMotor->resetPosition();
+    odom_pose[2] = 0.0;
 }
 
 
